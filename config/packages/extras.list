@@ -43,7 +43,10 @@ sys-apps/flatpak
 # System information and monitoring
 app-misc/neofetch
 app-misc/fastfetch
+app-misc/hyfetch
+app-misc/screenfetch
 sys-process/btop
+sys-process/atop
 sys-apps/lm-sensors
 media-video/libva-utils
 x11-apps/mesa-progs

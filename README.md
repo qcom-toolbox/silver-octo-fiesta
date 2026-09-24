@@ -11,7 +11,7 @@ A graphical installer puts it on your disk in a few clicks.
 | **Desktop** | KDE Plasma 6 on Wayland, SDDM with a Wayland greeter (no Xorg needed) |
 | **Kernel** | `sys-kernel/gentoo-kernel` plus an AM4 config fragment (amd-pstate, 1000 Hz, full preemption, k10temp) |
 | **Graphics** | NVIDIA RTX 3000/4000/5000 (open kernel modules), or AMD Radeon / Ryzen APU (mesa) |
-| **Tools** | neofetch, htop, btop, fastfetch, KDE Partition Manager, Konsole, Dolphin, Kate… |
+| **Tools** | sudo, neofetch, fastfetch, hyfetch, screenfetch, htop, btop, atop, KDE Partition Manager, Konsole, Dolphin, Kate… |
 | **Installer** | Graphical Qt 6 wizard with automatic or manual (dual-boot) partitioning, Btrfs or ext4, UEFI or BIOS |
 
 > For now the distribution is branded **Gentoo Linux**. To rename it, see
@@ -156,7 +156,10 @@ cd installer && python3 -m am4_installer --dry-run
   `dispatch-conf` and updates Flatpak apps.
 - **Discover** installs Flatpak apps from Flathub, such as Steam, Discord or
   OBS. The system already has `vm.max_map_count` raised for games.
-- `neofetch` greets you in every new Konsole window. `htop` and `btop` are installed.
+- The user you create in the installer is in the `wheel` group and can run
+  anything with `sudo`. Root logins stay locked unless you tick "same password for root".
+- `neofetch` greets you in every new Konsole window. `fastfetch`, `hyfetch`,
+  `screenfetch`, `htop`, `btop` and `atop` are installed too.
 - zram swap (half of your RAM, zstd) is enabled through `zram-init`.
 - NVIDIA systems are preconfigured: `nvidia_drm.modeset=1 fbdev=1`, early
   loading in the initramfs, nouveau blacklisted, and an elogind sleep hook so

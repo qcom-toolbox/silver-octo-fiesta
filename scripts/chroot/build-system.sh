@@ -280,8 +280,12 @@ finalize() {
 	info "Cleaning up"
 	sed -i '/^# BEGIN build-only/,/^# END build-only/d' /etc/portage/make.conf
 	eselect news read all >/dev/null 2>&1 || true
-	command -v eix-update >/dev/null && eix-update -q || true
-	command -v updatedb >/dev/null && updatedb || true
+	if command -v eix-update >/dev/null; then
+		eix-update -q || warn "eix-update failed"
+	fi
+	if command -v updatedb >/dev/null; then
+		updatedb || warn "updatedb failed"
+	fi
 	# Generated again on first boot, so every install gets its own ids.
 	rm -f /etc/machine-id /var/lib/dbus/machine-id
 	rm -rf /var/tmp/portage/* /tmp/* /root/.cache
