@@ -204,19 +204,6 @@ install_files() {
 		chmod 755 /usr/local/bin/neofetch
 	fi
 
-	# Branding (only needed when the name differs from stock Gentoo)
-	if [[ ${DISTRO_NAME} != "Gentoo Linux" ]]; then
-		rm -f /etc/os-release
-		cat >/etc/os-release <<-EOF
-			NAME="${DISTRO_NAME}"
-			ID=${DISTRO_ID}
-			ID_LIKE=gentoo
-			PRETTY_NAME="${DISTRO_NAME}"
-			ANSI_COLOR="1;32"
-			HOME_URL="https://www.gentoo.org/"
-		EOF
-	fi
-
 	mkdir -p "${STATE_DIR}"
 	cat >"${STATE_DIR}/edition.conf" <<-EOF
 		DISTRO_NAME="${DISTRO_NAME}"

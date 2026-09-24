@@ -14,8 +14,8 @@ A graphical installer puts it on your disk in a few clicks.
 | **Tools** | sudo, neofetch, fastfetch, hyfetch, screenfetch, htop, btop, atop, KDE Partition Manager, Konsole, Dolphin, Kate… |
 | **Installer** | Graphical Qt 6 wizard with automatic or manual (dual-boot) partitioning, Btrfs or ext4, UEFI or BIOS |
 
-> For now the distribution is branded **Gentoo Linux**. To rename it, see
-> [Rebranding](#rebranding). Everything reads the name from one file.
+> The distribution is called **Gentoo Linux**. It uses Gentoo's own
+> `/etc/os-release`, so neofetch and other tools show it as Gentoo.
 
 ## Which ISO do I need?
 
@@ -172,7 +172,7 @@ cd installer && python3 -m am4_installer --dry-run
 ```
 build.sh                    host-side driver: fetch → build → iso
 config/
-  distro.conf               name, profile, stage3 flavour  (rebranding happens here)
+  distro.conf               name (Gentoo Linux), profile, stage3 flavour
   cpu/{zenplus,zen3}.conf   -march, CPU_FLAGS_X86, compatibility checks
   gpu/{nvidia,amd}/         VIDEO_CARDS, driver USE flags/licenses, extra files
   portage/                  make.conf template, package.use/license/keywords, @am4-core set
@@ -194,13 +194,6 @@ installer/                  the Qt 6 installer (am4_installer package, launcher,
 - **USE flags:** edit `config/portage/package.use/00-am4-desktop` or the `USE=` line in `config/portage/make.conf.in`.
 - **Another CPU generation:** copy `config/cpu/zen3.conf`, for example to
   `zen4.conf` with `znver4` and your `cpuid2cpuflags` output, and build with `--cpu zen4`.
-
-### Rebranding
-
-Change `DISTRO_NAME`, `DISTRO_SHORT` and `DISTRO_ID` in `config/distro.conf`.
-These values flow into the ISO name and label, the GRUB menu, the installer,
-the desktop entries and the GRUB distributor. If the name is no longer
-"Gentoo Linux", the build also writes a matching `/etc/os-release`.
 
 ## Development
 
