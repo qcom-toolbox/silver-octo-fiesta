@@ -39,6 +39,17 @@ RESERVED_USERNAMES = {
 USER_GROUPS = ("users", "wheel", "audio", "video", "input", "render", "plugdev", "usb", "lp", "pipewire")
 BIOS_BOOT_GUID = "21686148-6449-6E6F-744E-656564454649"
 BTRFS_OPTS = "compress=zstd:1,noatime"
+# Btrfs subvolumes and where they are mounted. Logs and caches live outside
+# "@" so snapshots of the system stay small and a rollback keeps the logs.
+BTRFS_SUBVOLUMES = (
+    ("@", "/"),
+    ("@home", "/home"),
+    ("@snapshots", "/.snapshots"),
+    ("@log", "/var/log"),
+    ("@cache", "/var/cache"),
+)
+LUKS_NAME = "cryptroot"
+MIN_PASSPHRASE = 8
 
 RSYNC_EXCLUDES = (
     "/proc/*", "/sys/*", "/dev/*", "/run/*", "/tmp/*", "/mnt/*", "/media/*",
@@ -76,6 +87,14 @@ def validate_password(password: str, confirm: str) -> str | None:
         return "The passwords do not match."
     if ":" in password or "\n" in password:
         return "The password must not contain ':' or line breaks."
+    return None
+
+
+def validate_passphrase(passphrase: str, confirm: str) -> str | None:
+    if len(passphrase) < MIN_PASSPHRASE:
+        return f"The encryption passphrase must have at least {MIN_PASSPHRASE} characters."
+    if passphrase != confirm:
+        return "The encryption passphrases do not match."
     return None
 
 
@@ -118,6 +137,9 @@ class InstallConfig:
     efi_partition: str = ""
     format_efi: bool = False
     filesystem: str = "btrfs"
+    # LUKS2 encryption of the system partition (erase mode only).
+    encrypt: bool = False
+    luks_passphrase: str = ""
     full_name: str = ""
     username: str = ""
     password: str = ""
@@ -138,7 +160,10 @@ class InstallConfig:
             ("Time zone", self.timezone),
             ("Keyboard", self.keyboard_layout + (f" ({self.keyboard_variant})" if self.keyboard_variant else "")),
             ("Installation", storage),
-            ("File system", "Btrfs (zstd compression, @ and @home subvolumes)" if self.filesystem == "btrfs" else "ext4"),
+            ("File system", "Btrfs (zstd compression; @, @home, @snapshots, @log, @cache subvolumes)"
+             if self.filesystem == "btrfs" else "ext4"),
+            ("Encryption", "LUKS2, passphrase asked at every boot (/boot stays unencrypted)"
+             if self.encrypt else "None"),
             ("Boot mode", "UEFI" if self.uefi else "Legacy BIOS"),
             ("User", f"{self.full_name} ({self.username})" if self.full_name else self.username),
             ("Computer name", self.hostname),
@@ -281,8 +306,11 @@ class Installer:
         self.edition = edition or system.read_edition()
         self.target = target
         self.live_files = live_files
-        self.root_dev = ""
+        self.root_dev = ""  # device holding the root file system (the LUKS mapping if encrypted)
         self.efi_dev = ""
+        self.boot_dev = ""  # separate /boot partition (only with encryption)
+        self.luks_dev = ""  # the encrypted partition
+        self._luks_open = False
         self.source = ""
         self._mounted_source = False
         self._chroot_mounts: list[str] = []
@@ -291,7 +319,8 @@ class Installer:
     # helpers -------------------------------------------------------------
     def t(self, path: str) -> str:
         """Path inside the target system."""
-        return os.path.join(self.target, path.lstrip("/"))
+        rel = path.lstrip("/")
+        return os.path.join(self.target, rel) if rel else self.target
 
     def chroot(self, *cmd: str, **kwargs) -> str:
         return self.r.run(["chroot", self.target, *cmd], **kwargs)
@@ -322,6 +351,12 @@ class Installer:
                 raise InstallError(err)
         if c.filesystem not in ("btrfs", "ext4"):
             raise InstallError(f"Unsupported file system {c.filesystem}")
+        if c.encrypt:
+            if c.mode != "erase":
+                raise InstallError("Encryption is only available when erasing a whole disk.")
+            err = validate_passphrase(c.luks_passphrase, c.luks_passphrase)
+            if err:
+                raise InstallError(err)
         if c.mode == "erase":
             if not c.disk:
                 raise InstallError("No disk selected.")
@@ -355,22 +390,37 @@ class Installer:
             self.r.run(["umount", "--recursive", dev], check=False)
 
         self.r.run(["wipefs", "--all", "--force", c.disk])
-        if c.uefi:
-            first = 'size=1GiB, type=U, name="EFI system"'
-        else:
-            first = f'size=1MiB, type={BIOS_BOOT_GUID}, name="BIOS boot"'
-        layout = f'label: gpt\n{first}\ntype=L, name="{self.edition["DISTRO_SHORT"]}"\n'
+        parts = ['size=1GiB, type=U, name="EFI system"' if c.uefi
+                 else f'size=1MiB, type={BIOS_BOOT_GUID}, name="BIOS boot"']
+        if c.encrypt:
+            # GRUB reads kernel and initramfs from a plain /boot; everything
+            # else is inside LUKS2 (with Argon2id, which GRUB cannot unlock).
+            parts.append('size=1GiB, type=L, name="boot"')
+        parts.append(f'type=L, name="{self.edition["DISTRO_SHORT"]}"')
+        layout = "label: gpt\n" + "\n".join(parts) + "\n"
         self.r.run(["sfdisk", "--wipe", "always", "--wipe-partitions", "always", c.disk], input=layout)
         self.r.run(["partprobe", c.disk], check=False)
         self.r.run(["udevadm", "settle"], check=False)
-        self.root_dev = partition_path(c.disk, 2)
         self.efi_dev = partition_path(c.disk, 1) if c.uefi else ""
+        if c.encrypt:
+            self.boot_dev = partition_path(c.disk, 2)
+            self.luks_dev = partition_path(c.disk, 3)
+        else:
+            self.root_dev = partition_path(c.disk, 2)
 
     def format(self) -> None:
         c = self.cfg
         label = self.edition["DISTRO_SHORT"][:16]
         if self.efi_dev and (c.mode == "erase" or c.format_efi):
             self.r.run(["mkfs.vfat", "-F", "32", "-n", "EFI", self.efi_dev])
+        if c.encrypt:
+            self.r.run(["cryptsetup", "luksFormat", "--type", "luks2", "--batch-mode",
+                        "--key-file=-", self.luks_dev], input=c.luks_passphrase)
+            self.r.run(["cryptsetup", "open", "--key-file=-", self.luks_dev, LUKS_NAME],
+                       input=c.luks_passphrase)
+            self._luks_open = True
+            self.root_dev = f"/dev/mapper/{LUKS_NAME}"
+            self.r.run(["mkfs.ext4", "-F", "-L", "boot", self.boot_dev])
         if c.filesystem == "btrfs":
             self.r.run(["mkfs.btrfs", "--force", "--label", label, self.root_dev])
         else:
@@ -380,14 +430,18 @@ class Installer:
         self.r.mkdir(self.target)
         if self.cfg.filesystem == "btrfs":
             self.r.run(["mount", self.root_dev, self.target])
-            for sub in ("@", "@home"):
+            for sub, _ in BTRFS_SUBVOLUMES:
                 self.r.run(["btrfs", "subvolume", "create", f"{self.target}/{sub}"])
             self.r.run(["umount", self.target])
-            self.r.run(["mount", "-o", f"subvol=@,{BTRFS_OPTS}", self.root_dev, self.target])
-            self.r.mkdir(self.t("/home"))
-            self.r.run(["mount", "-o", f"subvol=@home,{BTRFS_OPTS}", self.root_dev, self.t("/home")])
+            for sub, mountpoint in BTRFS_SUBVOLUMES:
+                if mountpoint != "/":
+                    self.r.mkdir(self.t(mountpoint))
+                self.r.run(["mount", "-o", f"subvol={sub},{BTRFS_OPTS}", self.root_dev, self.t(mountpoint)])
         else:
             self.r.run(["mount", "-o", "noatime", self.root_dev, self.target])
+        if self.boot_dev:
+            self.r.mkdir(self.t("/boot"))
+            self.r.run(["mount", "-o", "noatime", self.boot_dev, self.t("/boot")])
         if self.efi_dev:
             self.r.mkdir(self.t("/efi"))
             self.r.run(["mount", self.efi_dev, self.t("/efi")])
@@ -460,10 +514,12 @@ class Installer:
         lines = ["# /etc/fstab: static file system information (written by the installer)",
                  "# <fs>  <mountpoint>  <type>  <opts>  <dump>  <pass>"]
         if self.cfg.filesystem == "btrfs":
-            lines.append(f"UUID={root_uuid}  /      btrfs  subvol=@,{BTRFS_OPTS}      0 0")
-            lines.append(f"UUID={root_uuid}  /home  btrfs  subvol=@home,{BTRFS_OPTS}  0 0")
+            for sub, mountpoint in BTRFS_SUBVOLUMES:
+                lines.append(f"UUID={root_uuid}  {mountpoint}  btrfs  subvol={sub},{BTRFS_OPTS}  0 0")
         else:
             lines.append(f"UUID={root_uuid}  /  ext4  noatime  0 1")
+        if self.boot_dev:
+            lines.append(f"UUID={self._uuid(self.boot_dev)}  /boot  ext4  noatime  0 2")
         if self.efi_dev:
             lines.append(f"UUID={self._uuid(self.efi_dev)}  /efi  vfat  umask=0077  0 2")
         self.r.write_file(self.t("/etc/fstab"), "\n".join(lines) + "\n")
@@ -572,6 +628,15 @@ class Installer:
             return
         name = self.edition.get("DISTRO_SHORT", "Gentoo")
         new = re.sub(r"^GRUB_DISTRIBUTOR=.*$", f'GRUB_DISTRIBUTOR="{name}"', text, flags=re.M)
+        if self.cfg.encrypt:
+            # dracut's crypt module unlocks the root partition and asks for
+            # the passphrase using the chosen keyboard layout.
+            cmdline = [f"rd.luks.uuid={self._uuid(self.luks_dev)}",
+                       f"rd.vconsole.keymap={system.console_keymap(self.cfg.keyboard_layout)}"]
+            line = f'GRUB_CMDLINE_LINUX="{" ".join(cmdline)}"'
+            new, found = re.subn(r"^GRUB_CMDLINE_LINUX=.*$", line, new, flags=re.M)
+            if not found:
+                new = new.rstrip("\n") + "\n" + line + "\n"
         self.r.write_file(path, new)
 
     def bootloader(self) -> None:
@@ -598,6 +663,9 @@ class Installer:
         self._chroot_mounts = []
         if self.root_dev:
             self.r.run(["umount", "--recursive", self.target], check=False)
+        if self._luks_open:
+            self.r.run(["cryptsetup", "close", LUKS_NAME], check=False)
+            self._luks_open = False
         if self._mounted_source:
             self.r.run(["umount", SOURCE_MOUNT], check=False)
             self._mounted_source = False

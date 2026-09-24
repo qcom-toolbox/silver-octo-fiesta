@@ -14,7 +14,7 @@ A graphical installer puts it on your disk in a few clicks.
 | **CPUs** | AMD Ryzen 1000–9000, Intel Core 10th gen (2020) and newer, Core Ultra |
 | **Graphics** | NVIDIA RTX 3000/4000/5000 (open kernel modules), or AMD Radeon RX 6000–9000 / Intel Arc / integrated graphics (mesa) |
 | **Tools** | sudo, neofetch, fastfetch, hyfetch, screenfetch, htop, btop, atop, KDE Partition Manager, Konsole, Dolphin, Kate… |
-| **Installer** | Graphical Qt 6 wizard with automatic or manual (dual-boot) partitioning, Btrfs or ext4, UEFI or BIOS |
+| **Installer** | Graphical Qt 6 wizard: automatic or manual (dual-boot) partitioning, Btrfs (with subvolumes) or ext4, optional LUKS2 encryption, UEFI or BIOS |
 
 > The distribution is called **Gentoo Linux**. It uses Gentoo's own
 > `/etc/os-release`, so neofetch and other tools show it as Gentoo.
@@ -158,7 +158,25 @@ The installer has these steps: **Welcome → Location → Disk → User → Summ
   - *Use existing partitions*: for dual booting next to Windows. Pick a root
     partition and the existing EFI partition, which is kept by default. You
     can open KDE Partition Manager from this page to make room first.
-  - File system: **Btrfs** (zstd compression, `@` and `@home` subvolumes) or **ext4**.
+  - File system: **Btrfs** or **ext4**. Btrfs uses zstd compression and these subvolumes:
+
+    | Subvolume | Mounted at | Why |
+    |---|---|---|
+    | `@` | `/` | the system |
+    | `@home` | `/home` | your files, kept out of system snapshots |
+    | `@snapshots` | `/.snapshots` | a place for snapshots of `@` |
+    | `@log` | `/var/log` | logs survive rolling back the system |
+    | `@cache` | `/var/cache` | Portage downloads and caches don't bloat snapshots |
+
+    Take a snapshot before a big update with
+    `sudo btrfs subvolume snapshot -r / /.snapshots/before-update`.
+  - **Encryption (LUKS2):** tick *Encrypt the system* and choose a
+    passphrase of at least 8 characters. The disk then gets an EFI partition,
+    an unencrypted 1 GiB `/boot` (kernel and initramfs only), and a LUKS2
+    partition holding everything else. At every boot the initramfs asks for
+    the passphrase using your keyboard layout. Encryption works with Btrfs and
+    ext4, in both UEFI and BIOS mode. It is only offered when erasing a whole
+    disk. If you forget the passphrase, the data cannot be recovered.
 - **User** asks for your name, user name, computer name and password. Two
   options: use the same password for root, and log in automatically.
 - **Install** copies the system with rsync, writes `fstab`, locale, time zone,

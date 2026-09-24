@@ -235,9 +235,27 @@ class DiskPage(Page):
         self.fs.addItem("ext4 - classic and simple", "ext4")
         fs_row.addWidget(self.fs, 1)
         self.layout_.addLayout(fs_row)
+
+        self.encrypt = QtWidgets.QCheckBox(
+            "Encrypt the system with LUKS2 (a passphrase is asked at every boot)")
+        self.layout_.addWidget(self.encrypt)
+        self.crypt_box = QtWidgets.QWidget()
+        cform = QtWidgets.QFormLayout(self.crypt_box)
+        cform.setContentsMargins(28, 0, 0, 0)
+        self.passphrase = QtWidgets.QLineEdit()
+        self.passphrase_confirm = QtWidgets.QLineEdit()
+        for field in (self.passphrase, self.passphrase_confirm):
+            field.setEchoMode(QtWidgets.QLineEdit.EchoMode.Password)
+        cform.addRow("Encryption passphrase:", self.passphrase)
+        cform.addRow("Repeat passphrase:", self.passphrase_confirm)
+        cform.addRow("", _note(
+            "<i>If you forget this passphrase, your data cannot be recovered. "
+            "Encryption is available when erasing a whole disk.</i>"))
+        self.layout_.addWidget(self.crypt_box)
         self.layout_.addStretch(1)
 
         self.erase.toggled.connect(self._update_mode)
+        self.encrypt.toggled.connect(self._update_mode)
         self.disk.currentIndexChanged.connect(self._update_warning)
         self.disks: list[system.Disk] = []
         self.partitions: list[system.Partition] = []
@@ -268,6 +286,10 @@ class DiskPage(Page):
         self.manual_box.setEnabled(not erase)
         self.efi_part.setEnabled(self.cfg.uefi and not erase)
         self.format_efi.setEnabled(self.cfg.uefi and not erase)
+        self.encrypt.setEnabled(erase)
+        if not erase:
+            self.encrypt.setChecked(False)
+        self.crypt_box.setVisible(self.encrypt.isChecked())
 
     def _update_warning(self):
         if not self.disks:
@@ -290,6 +312,8 @@ class DiskPage(Page):
             disk = self.disks[self.disk.currentIndex()]
             if disk.size < backend.MIN_DISK_BYTES:
                 return f"{disk.path} is too small, at least {system.human_size(backend.MIN_DISK_BYTES)} are needed."
+            if self.encrypt.isChecked():
+                return backend.validate_passphrase(self.passphrase.text(), self.passphrase_confirm.text())
             return None
         root = self.root_part.currentData()
         if not root:
@@ -308,6 +332,8 @@ class DiskPage(Page):
     def apply(self):
         c = self.cfg
         c.filesystem = self.fs.currentData()
+        c.encrypt = self.erase.isChecked() and self.encrypt.isChecked()
+        c.luks_passphrase = self.passphrase.text() if c.encrypt else ""
         if self.erase.isChecked():
             c.mode = "erase"
             c.disk = self.disk.currentData()

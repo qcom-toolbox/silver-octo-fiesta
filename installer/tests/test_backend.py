@@ -109,6 +109,57 @@ def test_erase_install_uefi_btrfs(target):
     assert progress == sorted(progress)
 
 
+def test_btrfs_subvolumes(target):
+    runner, _, root = run_install(make_config(), target)
+    cmds = [" ".join(c) for c in runner.commands]
+    for sub, mountpoint in backend.BTRFS_SUBVOLUMES:
+        assert f"btrfs subvolume create {root}/{sub}" in cmds
+        path = str(root) if mountpoint == "/" else f"{root}{mountpoint}"
+        assert f"mount -o subvol={sub},{backend.BTRFS_OPTS} /dev/nvme0n1p2 {path}" in cmds
+    fstab = (root / "etc/fstab").read_text()
+    for sub, mountpoint in backend.BTRFS_SUBVOLUMES:
+        assert f"  {mountpoint}  btrfs  subvol={sub},{backend.BTRFS_OPTS}  0 0" in fstab
+    # "/" is mounted before the subvolumes below it
+    order = [c for c in cmds if c.startswith("mount -o subvol=")]
+    assert order[0].endswith(str(root))
+
+
+def test_luks_install(target):
+    cfg = make_config(encrypt=True, luks_passphrase="correct horse battery")
+    runner, _, root = run_install(cfg, target)
+    cmds = [" ".join(c) for c in runner.commands]
+
+    layout = next(i for c, i in zip(runner.commands, runner.inputs) if c[0] == "sfdisk")
+    assert layout.count("\n") == 4 and 'name="boot"' in layout  # label + EFI + boot + root
+    luks_format = cmds.index("cryptsetup luksFormat --type luks2 --batch-mode --key-file=- /dev/nvme0n1p3")
+    luks_open = cmds.index("cryptsetup open --key-file=- /dev/nvme0n1p3 cryptroot")
+    assert runner.inputs[luks_format] == runner.inputs[luks_open] == "correct horse battery"
+    assert luks_format < luks_open < cmds.index("mkfs.btrfs --force --label Gentoo /dev/mapper/cryptroot")
+    assert "mkfs.ext4 -F -L boot /dev/nvme0n1p2" in cmds
+    assert "mkfs.vfat -F 32 -n EFI /dev/nvme0n1p1" in cmds
+    assert f"mount -o noatime /dev/nvme0n1p2 {root}/boot" in cmds
+
+    fstab = (root / "etc/fstab").read_text()
+    assert "/boot  ext4" in fstab and "/efi  vfat" in fstab
+    grub = (root / "etc/default/grub").read_text()
+    assert 'GRUB_CMDLINE_LINUX="rd.luks.uuid=DRY-RUN-UUID-OF-nvme0n1p3 rd.vconsole.keymap=de"' in grub
+
+    # closed again after unmounting, and the passphrase is never logged
+    assert cmds.index("cryptsetup close cryptroot") > cmds.index(f"umount --recursive {root}")
+    assert not any("correct horse" in line for line in runner.lines)
+
+
+def test_luks_bios_layout(target):
+    cfg = make_config(uefi=False, disk="/dev/sda", encrypt=True, luks_passphrase="12345678", filesystem="ext4")
+    runner, _, root = run_install(cfg, target)
+    cmds = [" ".join(c) for c in runner.commands]
+    layout = next(i for c, i in zip(runner.commands, runner.inputs) if c[0] == "sfdisk")
+    assert backend.BIOS_BOOT_GUID in layout
+    assert "cryptsetup open --key-file=- /dev/sda3 cryptroot" in cmds
+    assert "mkfs.ext4 -F -L Gentoo /dev/mapper/cryptroot" in cmds
+    assert f"mount -o noatime /dev/sda2 {root}/boot" in cmds
+
+
 def test_manual_install_keeps_efi(target):
     cfg = make_config(mode="manual", disk="/dev/sda", root_partition="/dev/sda3",
                       efi_partition="/dev/sda1", format_efi=False, filesystem="ext4",
@@ -146,6 +197,21 @@ def test_invalid_config_is_rejected_before_touching_disks(target, field, value):
     assert not any(c[0] in ("wipefs", "sfdisk") for c in runner.commands)
 
 
+@pytest.mark.parametrize("overrides", [
+    {"encrypt": True, "luks_passphrase": "short"},
+    {"encrypt": True, "luks_passphrase": "long enough", "mode": "manual",
+     "root_partition": "/dev/sda3", "efi_partition": "/dev/sda1"},
+])
+def test_invalid_encryption_is_rejected(target, overrides):
+    root, listing = target
+    runner = FakeRunner()
+    inst = backend.Installer(make_config(**overrides), runner, edition=EDITION,
+                             target=str(root), live_files=str(listing))
+    with pytest.raises(backend.InstallError):
+        inst.run()
+    assert not any(c[0] in ("wipefs", "sfdisk", "cryptsetup") for c in runner.commands)
+
+
 def test_dry_run_logs_only(tmp_path, capsys):
     lines = []
     runner = backend.Runner(dry_run=True, log=lines.append)
@@ -175,6 +241,9 @@ def test_validators():
     assert backend.validate_hostname("a" * 64)
     assert backend.validate_password("a", "b")
     assert backend.validate_password("a:b", "a:b")
+    assert backend.validate_passphrase("12345678", "12345678") is None
+    assert backend.validate_passphrase("1234567", "1234567")
+    assert backend.validate_passphrase("12345678", "12345679")
     assert backend.suggest_username("Sam Smith") == "sam"
     assert backend.suggest_username("42 Things") == "u42"
 
