@@ -1,0 +1,80 @@
+#!/bin/bash
+# Automatic system snapshots with Snapper (Btrfs) or ZFS.
+#
+# The installer writes /etc/conf.d/gentoo-snapshots:
+#   SNAPSHOTS="snapper"   Btrfs root, snapper config "root"
+#   SNAPSHOTS="zfs"       ZFS root, datasets listed in ZFS_DATASETS
+#   SNAPSHOTS="none"      disabled
+#
+# Usage:
+#   gentoo-snapshot hourly          (cron) hourly snapshot
+#   gentoo-snapshot daily           (cron) daily snapshot and cleanup of old ones
+#   gentoo-snapshot pre <text>      snapshot before a change, prints its id
+#   gentoo-snapshot post <id> <text> snapshot after the change (Snapper pre/post pair)
+#   gentoo-snapshot list            show the snapshots
+set -euo pipefail
+
+SNAPSHOTS="none"
+ZFS_DATASETS="rpool/ROOT/gentoo rpool/home"
+# ZFS: how many automatic snapshots of each kind to keep (Snapper uses its own
+# limits from /etc/snapper/configs/root).
+ZFS_KEEP_HOURLY=24
+ZFS_KEEP_DAILY=7
+ZFS_KEEP_UPDATE=10
+# shellcheck source=/dev/null
+[[ -r /etc/conf.d/gentoo-snapshots ]] && source /etc/conf.d/gentoo-snapshots
+
+snapper_cmd() { snapper --no-dbus --config root "$@"; }
+
+zfs_create() { # <kind>
+	local ds name
+	name="auto-$1-$(date +%Y%m%d-%H%M%S)"
+	for ds in ${ZFS_DATASETS}; do
+		zfs snapshot "${ds}@${name}"
+	done
+	echo "${name}"
+}
+
+zfs_prune() { # <kind> <keep>
+	local ds
+	for ds in ${ZFS_DATASETS}; do
+		zfs list -H -t snapshot -o name -s creation -d 1 "${ds}" |
+			grep -F "@auto-$1-" | head -n -"$2" | xargs -r -n1 zfs destroy
+	done
+}
+
+cmd=${1:-}
+case "${SNAPSHOTS}/${cmd}" in
+	none/list) echo "Automatic snapshots are disabled (/etc/conf.d/gentoo-snapshots)." ;;
+	none/*) exit 0 ;;
+
+	snapper/hourly) snapper_cmd create --cleanup-algorithm timeline --description timeline ;;
+	snapper/daily)
+		snapper_cmd cleanup timeline
+		snapper_cmd cleanup number
+		;;
+	snapper/pre) snapper_cmd create --type pre --print-number --cleanup-algorithm number --description "${2:-before change}" ;;
+	snapper/post) snapper_cmd create --type post --pre-number "${2:?pre snapshot number}" --cleanup-algorithm number --description "${3:-after change}" ;;
+	snapper/list) snapper_cmd list ;;
+
+	zfs/hourly)
+		zfs_create hourly >/dev/null
+		zfs_prune hourly "${ZFS_KEEP_HOURLY}"
+		;;
+	zfs/daily)
+		zfs_create daily >/dev/null
+		zfs_prune daily "${ZFS_KEEP_DAILY}"
+		zfs_prune update "${ZFS_KEEP_UPDATE}"
+		;;
+	zfs/pre) zfs_create update ;;
+	zfs/post) ;; # the "update" snapshot taken before is enough on ZFS
+	zfs/list)
+		read -r -a datasets <<<"${ZFS_DATASETS}"
+		zfs list -t snapshot -o name,creation,used "${datasets[@]}"
+		;;
+
+	*)
+		echo "Usage: $0 hourly|daily|pre <text>|post <id> <text>|list" >&2
+		exit 1
+		;;
+esac

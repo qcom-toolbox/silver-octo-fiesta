@@ -233,11 +233,18 @@ class DiskPage(Page):
         self.fs = QtWidgets.QComboBox()
         self.fs.addItem("Btrfs - compression and snapshots (recommended)", "btrfs")
         self.fs.addItem("ext4 - classic and simple", "ext4")
+        if system.zfs_available():
+            self.fs.addItem("ZFS - pool with datasets, checksums and snapshots (erases the disk)", "zfs")
         fs_row.addWidget(self.fs, 1)
         self.layout_.addLayout(fs_row)
 
+        self.snapshots = QtWidgets.QCheckBox(
+            "Automatic snapshots: hourly, daily and before every update (Snapper / ZFS)")
+        self.snapshots.setChecked(True)
+        self.layout_.addWidget(self.snapshots)
+
         self.encrypt = QtWidgets.QCheckBox(
-            "Encrypt the system with LUKS2 (a passphrase is asked at every boot)")
+            "Encrypt the system (a passphrase is asked at every boot)")
         self.layout_.addWidget(self.encrypt)
         self.crypt_box = QtWidgets.QWidget()
         cform = QtWidgets.QFormLayout(self.crypt_box)
@@ -249,13 +256,15 @@ class DiskPage(Page):
         cform.addRow("Encryption passphrase:", self.passphrase)
         cform.addRow("Repeat passphrase:", self.passphrase_confirm)
         cform.addRow("", _note(
-            "<i>If you forget this passphrase, your data cannot be recovered. "
-            "Encryption is available when erasing a whole disk.</i>"))
+            "<i>Btrfs and ext4 use LUKS2, ZFS uses its native encryption. If you forget "
+            "this passphrase, your data cannot be recovered. Encryption is available "
+            "when erasing a whole disk.</i>"))
         self.layout_.addWidget(self.crypt_box)
         self.layout_.addStretch(1)
 
         self.erase.toggled.connect(self._update_mode)
         self.encrypt.toggled.connect(self._update_mode)
+        self.fs.currentIndexChanged.connect(self._update_mode)
         self.disk.currentIndexChanged.connect(self._update_warning)
         self.disks: list[system.Disk] = []
         self.partitions: list[system.Partition] = []
@@ -289,6 +298,10 @@ class DiskPage(Page):
         self.encrypt.setEnabled(erase)
         if not erase:
             self.encrypt.setChecked(False)
+        # Snapshots need Btrfs or ZFS; ZFS needs a whole disk.
+        self.snapshots.setEnabled(self.fs.currentData() in ("btrfs", "zfs"))
+        if not erase and self.fs.currentData() == "zfs":
+            self.fs.setCurrentIndex(self.fs.findData("btrfs"))
         self.crypt_box.setVisible(self.encrypt.isChecked())
 
     def _update_warning(self):
@@ -332,6 +345,7 @@ class DiskPage(Page):
     def apply(self):
         c = self.cfg
         c.filesystem = self.fs.currentData()
+        c.snapshots = self.snapshots.isChecked() and c.filesystem in ("btrfs", "zfs")
         c.encrypt = self.erase.isChecked() and self.encrypt.isChecked()
         c.luks_passphrase = self.passphrase.text() if c.encrypt else ""
         if self.erase.isChecked():

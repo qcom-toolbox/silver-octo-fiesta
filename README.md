@@ -14,7 +14,7 @@ A graphical installer puts it on your disk in a few clicks.
 | **CPUs** | AMD Ryzen 1000–9000, Intel Core 10th gen (2020) and newer, Core Ultra |
 | **Graphics** | NVIDIA RTX 3000/4000/5000 (open kernel modules), or AMD Radeon RX 6000–9000 / Intel Arc / integrated graphics (mesa) |
 | **Tools** | sudo, neofetch, fastfetch, hyfetch, screenfetch, htop, btop, atop, KDE Partition Manager, Konsole, Dolphin, Kate… |
-| **Installer** | Graphical Qt 6 wizard: automatic or manual (dual-boot) partitioning, Btrfs (with subvolumes) or ext4, optional LUKS2 encryption, UEFI or BIOS |
+| **Installer** | Graphical Qt 6 wizard: automatic or manual (dual-boot) partitioning, Btrfs, ext4 or ZFS, automatic snapshots (Snapper / ZFS), optional encryption (LUKS2 / native ZFS), UEFI or BIOS |
 
 > The distribution is called **Gentoo Linux**. It uses Gentoo's own
 > `/etc/os-release`, so neofetch and other tools show it as Gentoo.
@@ -158,7 +158,7 @@ The installer has these steps: **Welcome → Location → Disk → User → Summ
   - *Use existing partitions*: for dual booting next to Windows. Pick a root
     partition and the existing EFI partition, which is kept by default. You
     can open KDE Partition Manager from this page to make room first.
-  - File system: **Btrfs** or **ext4**. Btrfs uses zstd compression and these subvolumes:
+  - File system: **Btrfs**, **ext4** or **ZFS**. Btrfs uses zstd compression and these subvolumes:
 
     | Subvolume | Mounted at | Why |
     |---|---|---|
@@ -168,14 +168,32 @@ The installer has these steps: **Welcome → Location → Disk → User → Summ
     | `@log` | `/var/log` | logs survive rolling back the system |
     | `@cache` | `/var/cache` | Portage downloads and caches don't bloat snapshots |
 
-    Take a snapshot before a big update with
-    `sudo btrfs subvolume snapshot -r / /.snapshots/before-update`.
-  - **Encryption (LUKS2):** tick *Encrypt the system* and choose a
-    passphrase of at least 8 characters. The disk then gets an EFI partition,
-    an unencrypted 1 GiB `/boot` (kernel and initramfs only), and a LUKS2
-    partition holding everything else. At every boot the initramfs asks for
-    the passphrase using your keyboard layout. Encryption works with Btrfs and
-    ext4, in both UEFI and BIOS mode. It is only offered when erasing a whole
+  - **ZFS** (only when erasing a whole disk) creates the pool `rpool` with
+    zstd compression and the datasets `rpool/ROOT/gentoo` (`/`),
+    `rpool/home`, `rpool/var/log` and `rpool/var/cache`. GRUB boots from a
+    small ext4 `/boot` partition, and the initramfs imports the pool. ZFS is
+    only offered if the image could include it: `sys-fs/zfs-kmod` must
+    support the kernel version, and Portage keeps the kernel within that
+    range. OpenZFS is CDDL-licensed. Consider that if you redistribute ISOs
+    that contain the ZFS kernel module.
+  - **Automatic snapshots** (Btrfs and ZFS, on by default):
+    - Btrfs uses **Snapper** with the config `root`.
+    - ZFS uses `zfs snapshot` on `rpool/ROOT/gentoo` and `rpool/home`.
+    - A snapshot is taken every hour and every day by cron, plus one before
+      and one after every `gentoo-update`.
+    - Old snapshots are removed automatically. Snapper keeps 10 hourly,
+      7 daily, 4 weekly and 3 monthly snapshots plus the last 10 update
+      pairs. ZFS keeps 24 hourly, 7 daily and 10 update snapshots.
+
+    Run `sudo gentoo-snapshot list` to see them. To undo an update on Btrfs, run
+    `sudo snapper -c root undochange <pre>..<post>`. On ZFS, run
+    `sudo zfs rollback -r rpool/ROOT/gentoo@<snapshot>`.
+  - **Encryption:** tick *Encrypt the system* and choose a passphrase of at
+    least 8 characters. The disk then gets an EFI partition, an unencrypted
+    1 GiB `/boot` (kernel and initramfs only), and one encrypted partition
+    holding everything else. Btrfs and ext4 use LUKS2; ZFS uses its native
+    encryption. At every boot the initramfs asks for the passphrase using
+    your keyboard layout. It works in both UEFI and BIOS mode. It is only offered when erasing a whole
     disk. If you forget the passphrase, the data cannot be recovered.
 - **User** asks for your name, user name, computer name and password. Two
   options: use the same password for root, and log in automatically.

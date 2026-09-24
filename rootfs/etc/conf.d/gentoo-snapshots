@@ -1,0 +1,3 @@
+# Automatic snapshots, set up by the installer: snapper (Btrfs), zfs or none.
+# Taken hourly and daily by cron, and before/after every gentoo-update.
+SNAPSHOTS="none"

@@ -49,6 +49,53 @@ BTRFS_SUBVOLUMES = (
     ("@cache", "/var/cache"),
 )
 LUKS_NAME = "cryptroot"
+ZFS_POOL = "rpool"
+ZFS_ROOT = f"{ZFS_POOL}/ROOT/gentoo"
+# (dataset, extra `zfs create` options). Like the Btrfs layout: logs and
+# caches are separate so system snapshots stay small.
+ZFS_DATASETS = (
+    (f"{ZFS_POOL}/ROOT", ["-o", "canmount=off", "-o", "mountpoint=none"]),
+    (ZFS_ROOT, ["-o", "canmount=noauto", "-o", "mountpoint=/"]),
+    (f"{ZFS_POOL}/home", ["-o", "mountpoint=/home"]),
+    (f"{ZFS_POOL}/var", ["-o", "canmount=off", "-o", "mountpoint=/var"]),
+    (f"{ZFS_POOL}/var/log", []),
+    (f"{ZFS_POOL}/var/cache", []),
+)
+ZFS_POOL_OPTIONS = [
+    "-o", "ashift=12", "-o", "autotrim=on",
+    "-O", "acltype=posixacl", "-O", "xattr=sa", "-O", "relatime=on", "-O", "compression=zstd",
+    "-O", "dnodesize=auto", "-O", "normalization=formD", "-O", "canmount=off", "-O", "mountpoint=none",
+]
+FILESYSTEMS = ("btrfs", "ext4", "zfs")
+
+SNAPPER_CONFIG = """\
+# Snapper configuration for / (written by the installer).
+# Snapshots are taken by /etc/cron.hourly/gentoo-snapshot and before/after
+# every gentoo-update; old ones are removed by /etc/cron.daily/gentoo-snapshot.
+SUBVOLUME="/"
+FSTYPE="btrfs"
+QGROUP=""
+SPACE_LIMIT="0.5"
+FREE_LIMIT="0.2"
+ALLOW_USERS=""
+ALLOW_GROUPS="wheel"
+SYNC_ACL="yes"
+BACKGROUND_COMPARISON="yes"
+NUMBER_CLEANUP="yes"
+NUMBER_MIN_AGE="1800"
+NUMBER_LIMIT="10"
+NUMBER_LIMIT_IMPORTANT="5"
+TIMELINE_CREATE="yes"
+TIMELINE_CLEANUP="yes"
+TIMELINE_MIN_AGE="1800"
+TIMELINE_LIMIT_HOURLY="10"
+TIMELINE_LIMIT_DAILY="7"
+TIMELINE_LIMIT_WEEKLY="4"
+TIMELINE_LIMIT_MONTHLY="3"
+TIMELINE_LIMIT_YEARLY="0"
+EMPTY_PRE_POST_CLEANUP="yes"
+EMPTY_PRE_POST_MIN_AGE="1800"
+"""
 MIN_PASSPHRASE = 8
 
 RSYNC_EXCLUDES = (
@@ -137,9 +184,12 @@ class InstallConfig:
     efi_partition: str = ""
     format_efi: bool = False
     filesystem: str = "btrfs"
-    # LUKS2 encryption of the system partition (erase mode only).
+    # Encryption of the system (erase mode only): LUKS2 for Btrfs/ext4,
+    # native ZFS encryption for ZFS.
     encrypt: bool = False
     luks_passphrase: str = ""
+    # Automatic snapshots: Snapper on Btrfs, zfs snapshots on ZFS.
+    snapshots: bool = True
     full_name: str = ""
     username: str = ""
     password: str = ""
@@ -160,16 +210,32 @@ class InstallConfig:
             ("Time zone", self.timezone),
             ("Keyboard", self.keyboard_layout + (f" ({self.keyboard_variant})" if self.keyboard_variant else "")),
             ("Installation", storage),
-            ("File system", "Btrfs (zstd compression; @, @home, @snapshots, @log, @cache subvolumes)"
-             if self.filesystem == "btrfs" else "ext4"),
-            ("Encryption", "LUKS2, passphrase asked at every boot (/boot stays unencrypted)"
-             if self.encrypt else "None"),
+            ("File system", {
+                "btrfs": "Btrfs (zstd compression; @, @home, @snapshots, @log, @cache subvolumes)",
+                "zfs": f"ZFS (pool {ZFS_POOL}, zstd compression; ROOT/gentoo, home, var/log, var/cache)",
+            }.get(self.filesystem, "ext4")),
+            ("Encryption", ("Native ZFS encryption" if self.filesystem == "zfs" else "LUKS2")
+             + ", passphrase asked at every boot (/boot stays unencrypted)" if self.encrypt else "None"),
+            ("Snapshots", self.snapshot_backend_description()),
             ("Boot mode", "UEFI" if self.uefi else "Legacy BIOS"),
             ("User", f"{self.full_name} ({self.username})" if self.full_name else self.username),
             ("Computer name", self.hostname),
             ("Administrator", "Same password as the user" if self.root_password_same else "Locked, use sudo"),
             ("Automatic login", "Yes" if self.autologin else "No"),
         ]
+
+
+    def snapshot_backend(self) -> str:
+        """Value of SNAPSHOTS in /etc/conf.d/gentoo-snapshots."""
+        if not self.snapshots:
+            return "none"
+        return {"btrfs": "snapper", "zfs": "zfs"}.get(self.filesystem, "none")
+
+    def snapshot_backend_description(self) -> str:
+        return {
+            "snapper": "Snapper: hourly/daily and before every gentoo-update",
+            "zfs": "ZFS snapshots: hourly/daily and before every gentoo-update",
+        }.get(self.snapshot_backend(), "None")
 
 
 class InstallError(RuntimeError):
@@ -310,7 +376,9 @@ class Installer:
         self.efi_dev = ""
         self.boot_dev = ""  # separate /boot partition (only with encryption)
         self.luks_dev = ""  # the encrypted partition
+        self.zfs_dev = ""  # the partition holding the ZFS pool
         self._luks_open = False
+        self._zpool_created = False
         self.source = ""
         self._mounted_source = False
         self._chroot_mounts: list[str] = []
@@ -349,8 +417,10 @@ class Installer:
                     validate_password(c.password, c.password)):
             if err:
                 raise InstallError(err)
-        if c.filesystem not in ("btrfs", "ext4"):
+        if c.filesystem not in FILESYSTEMS:
             raise InstallError(f"Unsupported file system {c.filesystem}")
+        if c.filesystem == "zfs" and c.mode != "erase":
+            raise InstallError("ZFS is only available when erasing a whole disk.")
         if c.encrypt:
             if c.mode != "erase":
                 raise InstallError("Encryption is only available when erasing a whole disk.")
@@ -392,9 +462,9 @@ class Installer:
         self.r.run(["wipefs", "--all", "--force", c.disk])
         parts = ['size=1GiB, type=U, name="EFI system"' if c.uefi
                  else f'size=1MiB, type={BIOS_BOOT_GUID}, name="BIOS boot"']
-        if c.encrypt:
-            # GRUB reads kernel and initramfs from a plain /boot; everything
-            # else is inside LUKS2 (with Argon2id, which GRUB cannot unlock).
+        if self._separate_boot:
+            # GRUB reads kernel and initramfs from a plain ext4 /boot. It never
+            # has to open LUKS2 (Argon2id) or a ZFS pool with newer features.
             parts.append('size=1GiB, type=L, name="boot"')
         parts.append(f'type=L, name="{self.edition["DISTRO_SHORT"]}"')
         layout = "label: gpt\n" + "\n".join(parts) + "\n"
@@ -402,17 +472,32 @@ class Installer:
         self.r.run(["partprobe", c.disk], check=False)
         self.r.run(["udevadm", "settle"], check=False)
         self.efi_dev = partition_path(c.disk, 1) if c.uefi else ""
-        if c.encrypt:
+        if self._separate_boot:
             self.boot_dev = partition_path(c.disk, 2)
-            self.luks_dev = partition_path(c.disk, 3)
+            system_part = partition_path(c.disk, 3)
         else:
-            self.root_dev = partition_path(c.disk, 2)
+            system_part = partition_path(c.disk, 2)
+        if c.filesystem == "zfs":
+            self.zfs_dev = system_part
+        elif c.encrypt:
+            self.luks_dev = system_part
+        else:
+            self.root_dev = system_part
+
+    @property
+    def _separate_boot(self) -> bool:
+        return self.cfg.encrypt or self.cfg.filesystem == "zfs"
 
     def format(self) -> None:
         c = self.cfg
         label = self.edition["DISTRO_SHORT"][:16]
         if self.efi_dev and (c.mode == "erase" or c.format_efi):
             self.r.run(["mkfs.vfat", "-F", "32", "-n", "EFI", self.efi_dev])
+        if self.boot_dev:
+            self.r.run(["mkfs.ext4", "-F", "-L", "boot", self.boot_dev])
+        if c.filesystem == "zfs":
+            self._create_zpool()
+            return
         if c.encrypt:
             self.r.run(["cryptsetup", "luksFormat", "--type", "luks2", "--batch-mode",
                         "--key-file=-", self.luks_dev], input=c.luks_passphrase)
@@ -420,15 +505,40 @@ class Installer:
                        input=c.luks_passphrase)
             self._luks_open = True
             self.root_dev = f"/dev/mapper/{LUKS_NAME}"
-            self.r.run(["mkfs.ext4", "-F", "-L", "boot", self.boot_dev])
         if c.filesystem == "btrfs":
             self.r.run(["mkfs.btrfs", "--force", "--label", label, self.root_dev])
         else:
             self.r.run(["mkfs.ext4", "-F", "-L", label, self.root_dev])
 
+    def _create_zpool(self) -> None:
+        c = self.cfg
+        # The pool remembers the host id that created it; the installed
+        # system must use the same one (copied in _setup_zfs) or the
+        # initramfs refuses to import the pool.
+        self.r.run(["zgenhostid", "-f"])
+        self.r.run(["modprobe", "zfs"])
+        cmd = ["zpool", "create", "-f", *ZFS_POOL_OPTIONS,
+               "-o", "cachefile=/etc/zfs/zpool.cache", "-R", self.target]
+        passphrase = None
+        if c.encrypt:
+            cmd += ["-O", "encryption=on", "-O", "keyformat=passphrase", "-O", "keylocation=prompt"]
+            passphrase = c.luks_passphrase + "\n"
+        cmd += [ZFS_POOL, self.zfs_dev]
+        self.r.run(cmd, input=passphrase)
+        self._zpool_created = True
+        self.root_dev = ZFS_ROOT
+        for dataset, options in ZFS_DATASETS:
+            self.r.run(["zfs", "create", *options, dataset])
+            if dataset == ZFS_ROOT:
+                # canmount=noauto: mount / by hand before creating datasets below it
+                self.r.run(["zfs", "mount", ZFS_ROOT])
+        self.r.run(["zpool", "set", f"bootfs={ZFS_ROOT}", ZFS_POOL])
+
     def mount(self) -> None:
         self.r.mkdir(self.target)
-        if self.cfg.filesystem == "btrfs":
+        if self.cfg.filesystem == "zfs":
+            pass  # the datasets are mounted below the pool's altroot already
+        elif self.cfg.filesystem == "btrfs":
             self.r.run(["mount", self.root_dev, self.target])
             for sub, _ in BTRFS_SUBVOLUMES:
                 self.r.run(["btrfs", "subvolume", "create", f"{self.target}/{sub}"])
@@ -499,7 +609,7 @@ class Installer:
         steps = (
             self._write_fstab, self._remove_live_session, self._set_hostname, self._set_timezone,
             self._set_locale, self._set_keyboard, self._create_user, self._tune_make_conf,
-            self._set_autologin, self._grub_defaults,
+            self._set_autologin, self._setup_zfs, self._setup_snapshots, self._grub_defaults,
         )
         for i, step in enumerate(steps):
             step()
@@ -510,10 +620,14 @@ class Installer:
         return uuid or f"DRY-RUN-UUID-OF-{os.path.basename(dev)}"
 
     def _write_fstab(self) -> None:
-        root_uuid = self._uuid(self.root_dev)
         lines = ["# /etc/fstab: static file system information (written by the installer)",
                  "# <fs>  <mountpoint>  <type>  <opts>  <dump>  <pass>"]
-        if self.cfg.filesystem == "btrfs":
+        if self.cfg.filesystem == "zfs":
+            lines.append(f"# ZFS datasets of pool {ZFS_POOL} are mounted by the initramfs and zfs-mount")
+        root_uuid = "" if self.cfg.filesystem == "zfs" else self._uuid(self.root_dev)
+        if self.cfg.filesystem == "zfs":
+            pass
+        elif self.cfg.filesystem == "btrfs":
             for sub, mountpoint in BTRFS_SUBVOLUMES:
                 lines.append(f"UUID={root_uuid}  {mountpoint}  btrfs  subvol={sub},{BTRFS_OPTS}  0 0")
         else:
@@ -621,6 +735,42 @@ class Installer:
                 f"[Autologin]\nUser={self.cfg.username}\nSession=plasma\nRelogin=false\n",
             )
 
+    def _setup_zfs(self) -> None:
+        if self.cfg.filesystem != "zfs":
+            return
+        self.r.mkdir(self.t("/etc/zfs"))
+        self.r.run(["cp", "/etc/hostid", self.t("/etc/hostid")])
+        self.r.run(["cp", "/etc/zfs/zpool.cache", self.t("/etc/zfs/zpool.cache")])
+        self.r.write_file(
+            self.t("/etc/dracut.conf.d/20-zfs.conf"),
+            "# Root file system on ZFS (written by the installer)\n"
+            'add_dracutmodules+=" zfs "\n'
+            'install_items+=" /etc/hostid /etc/zfs/zpool.cache "\n',
+        )
+        for service, runlevel in (("zfs-import", "boot"), ("zfs-mount", "boot"), ("zfs-zed", "default")):
+            self.chroot("rc-update", "add", service, runlevel, check=False)
+
+    def _setup_snapshots(self) -> None:
+        backend = self.cfg.snapshot_backend()
+        conf = f'# Automatic snapshots, set up by the installer: snapper (Btrfs), zfs or none.\nSNAPSHOTS="{backend}"\n'
+        if backend == "zfs":
+            conf += f'ZFS_DATASETS="{ZFS_ROOT} {ZFS_POOL}/home"\n'
+        self.r.write_file(self.t("/etc/conf.d/gentoo-snapshots"), conf)
+        if backend == "snapper":
+            self.r.write_file(self.t("/etc/snapper/configs/root"), SNAPPER_CONFIG)
+            self.r.write_file(self.t("/etc/conf.d/snapper"), 'SNAPPER_CONFIGS="root"\n')
+            self.chroot("chmod", "750", "/.snapshots")
+            self.chroot("snapper", "--no-dbus", "--config", "root", "create",
+                        "--cleanup-algorithm", "number", "--description", "Fresh install", check=False)
+        elif backend == "zfs":
+            self.r.run(["zfs", "snapshot", "-r", f"{ZFS_POOL}@fresh-install"], check=False)
+
+    def _kernel_versions(self) -> list[str]:
+        try:
+            return sorted(os.listdir(self.t("/lib/modules")))
+        except OSError:
+            return []
+
     def _grub_defaults(self) -> None:
         path = self.t("/etc/default/grub")
         text = self.r.read_file(path)
@@ -628,19 +778,39 @@ class Installer:
             return
         name = self.edition.get("DISTRO_SHORT", "Gentoo")
         new = re.sub(r"^GRUB_DISTRIBUTOR=.*$", f'GRUB_DISTRIBUTOR="{name}"', text, flags=re.M)
+        cmdline = []
         if self.cfg.encrypt:
-            # dracut's crypt module unlocks the root partition and asks for
-            # the passphrase using the chosen keyboard layout.
-            cmdline = [f"rd.luks.uuid={self._uuid(self.luks_dev)}",
-                       f"rd.vconsole.keymap={system.console_keymap(self.cfg.keyboard_layout)}"]
-            line = f'GRUB_CMDLINE_LINUX="{" ".join(cmdline)}"'
-            new, found = re.subn(r"^GRUB_CMDLINE_LINUX=.*$", line, new, flags=re.M)
-            if not found:
-                new = new.rstrip("\n") + "\n" + line + "\n"
+            # dracut unlocks the root file system and asks for the passphrase
+            # using the chosen keyboard layout.
+            if self.cfg.filesystem != "zfs":
+                cmdline.append(f"rd.luks.uuid={self._uuid(self.luks_dev)}")
+            cmdline.append(f"rd.vconsole.keymap={system.console_keymap(self.cfg.keyboard_layout)}")
+        if cmdline:
+            new = self._set_grub_var(new, "GRUB_CMDLINE_LINUX", " ".join(cmdline))
+        if self.cfg.filesystem == "zfs":
+            # grub-mkconfig cannot describe a ZFS root on its own (and GRUB may
+            # not read this pool's features); /etc/default/grub is read after
+            # its probing, so these values win. root=zfs:... is dracut syntax.
+            new = self._set_grub_var(new, "GRUB_DEVICE", f"zfs:{ZFS_ROOT}")
+            new = self._set_grub_var(new, "GRUB_FS", "zfs-dracut")
+            new = self._set_grub_var(new, "GRUB_DISABLE_LINUX_UUID", "true")
         self.r.write_file(path, new)
+
+    @staticmethod
+    def _set_grub_var(text: str, key: str, value: str) -> str:
+        line = f'{key}="{value}"'
+        new, found = re.subn(rf"^{key}=.*$", line, text, flags=re.M)
+        return new if found else new.rstrip("\n") + "\n" + line + "\n"
 
     def bootloader(self) -> None:
         name = self.edition.get("DISTRO_SHORT", "Gentoo")
+        if self.cfg.filesystem == "zfs":
+            # Rebuild the initramfs with the zfs module, host id and pool cache.
+            kernels = self._kernel_versions()
+            if not kernels and not self.r.dry_run:
+                raise InstallError("No kernel found in /lib/modules of the installed system.")
+            for kver in kernels:
+                self.chroot("dracut", "--force", "--kver", kver, f"/boot/initramfs-{kver}.img")
         if self.cfg.uefi:
             self.chroot("grub-install", "--target=x86_64-efi", "--efi-directory=/efi",
                         f"--bootloader-id={name}", "--recheck")
@@ -663,6 +833,9 @@ class Installer:
         self._chroot_mounts = []
         if self.root_dev:
             self.r.run(["umount", "--recursive", self.target], check=False)
+        if self._zpool_created:
+            self.r.run(["zpool", "export", ZFS_POOL], check=False)
+            self._zpool_created = False
         if self._luks_open:
             self.r.run(["cryptsetup", "close", LUKS_NAME], check=False)
             self._luks_open = False

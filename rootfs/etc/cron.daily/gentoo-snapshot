@@ -1,0 +1,3 @@
+#!/bin/sh
+# Daily snapshot and removal of old automatic snapshots; see /etc/conf.d/gentoo-snapshots
+exec /usr/local/sbin/gentoo-snapshot daily

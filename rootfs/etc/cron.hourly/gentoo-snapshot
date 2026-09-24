@@ -1,0 +1,3 @@
+#!/bin/sh
+# Automatic snapshots (Snapper on Btrfs, or ZFS); see /etc/conf.d/gentoo-snapshots
+exec /usr/local/sbin/gentoo-snapshot hourly

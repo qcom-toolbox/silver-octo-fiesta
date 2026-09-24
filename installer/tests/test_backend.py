@@ -160,6 +160,80 @@ def test_luks_bios_layout(target):
     assert f"mount -o noatime /dev/sda2 {root}/boot" in cmds
 
 
+def test_snapper_is_set_up_for_btrfs(target):
+    runner, _, root = run_install(make_config(), target)
+    assert 'SNAPSHOTS="snapper"' in (root / "etc/conf.d/gentoo-snapshots").read_text()
+    config = (root / "etc/snapper/configs/root").read_text()
+    assert 'SUBVOLUME="/"' in config and 'TIMELINE_CREATE="yes"' in config
+    assert (root / "etc/conf.d/snapper").read_text() == 'SNAPPER_CONFIGS="root"\n'
+    assert any("snapper" in c and "Fresh install" in c for c in runner.commands)
+
+
+@pytest.mark.parametrize("overrides", [{"snapshots": False}, {"filesystem": "ext4"}])
+def test_snapshots_off(target, overrides):
+    runner, _, root = run_install(make_config(**overrides), target)
+    assert 'SNAPSHOTS="none"' in (root / "etc/conf.d/gentoo-snapshots").read_text()
+    assert not (root / "etc/snapper/configs/root").exists()
+    assert not any("snapper" in c for c in runner.commands)
+
+
+def test_zfs_install(target):
+    root, _ = target
+    (root / "lib/modules/6.12.40-gentoo-dist").mkdir(parents=True)
+    runner, _, root = run_install(make_config(filesystem="zfs"), target)
+    cmds = [" ".join(c) for c in runner.commands]
+
+    layout = next(i for c, i in zip(runner.commands, runner.inputs) if c[0] == "sfdisk")
+    assert 'name="boot"' in layout  # GRUB boots from a plain ext4 /boot
+    assert "mkfs.ext4 -F -L boot /dev/nvme0n1p2" in cmds
+    create = next(c for c in runner.commands if c[:2] == ["zpool", "create"])
+    assert create[-2:] == ["rpool", "/dev/nvme0n1p3"]
+    assert ["-R", str(root)] == create[create.index("-R"):create.index("-R") + 2]
+    assert "encryption=on" not in create
+    assert cmds.index("zgenhostid -f") < cmds.index(" ".join(create))
+    assert cmds.index("zfs create -o canmount=noauto -o mountpoint=/ rpool/ROOT/gentoo") \
+        < cmds.index("zfs mount rpool/ROOT/gentoo") < cmds.index("zfs create -o mountpoint=/home rpool/home")
+    assert "zpool set bootfs=rpool/ROOT/gentoo rpool" in cmds
+    assert not any(c.startswith(("mkfs.btrfs", "mount -o subvol")) for c in cmds)
+
+    assert f"cp /etc/hostid {root}/etc/hostid" in cmds
+    assert f"cp /etc/zfs/zpool.cache {root}/etc/zfs/zpool.cache" in cmds
+    assert 'add_dracutmodules+=" zfs "' in (root / "etc/dracut.conf.d/20-zfs.conf").read_text()
+    assert f"chroot {root} rc-update add zfs-import boot" in cmds
+    assert f"chroot {root} dracut --force --kver 6.12.40-gentoo-dist /boot/initramfs-6.12.40-gentoo-dist.img" in cmds
+
+    fstab = (root / "etc/fstab").read_text()
+    entries = [line.split() for line in fstab.splitlines() if line and not line.startswith("#")]
+    assert [e[1] for e in entries] == ["/boot", "/efi"]  # ZFS mounts / and the datasets itself
+    grub = (root / "etc/default/grub").read_text()
+    assert 'GRUB_DEVICE="zfs:rpool/ROOT/gentoo"' in grub and 'GRUB_DISABLE_LINUX_UUID="true"' in grub
+
+    conf = (root / "etc/conf.d/gentoo-snapshots").read_text()
+    assert 'SNAPSHOTS="zfs"' in conf and 'ZFS_DATASETS="rpool/ROOT/gentoo rpool/home"' in conf
+    assert "zfs snapshot -r rpool@fresh-install" in cmds
+    # exported after unmounting so the installed system can import it
+    assert cmds.index("zpool export rpool") > cmds.index(f"umount --recursive {root}")
+
+
+def test_zfs_native_encryption(target):
+    root, _ = target
+    (root / "lib/modules/6.12.40-gentoo-dist").mkdir(parents=True)
+    cfg = make_config(filesystem="zfs", encrypt=True, luks_passphrase="zfs passphrase")
+    runner, _, root = run_install(cfg, target)
+    i, create = next((i, c) for i, c in enumerate(runner.commands) if c[:2] == ["zpool", "create"])
+    assert "encryption=on" in create and "keylocation=prompt" in create
+    assert runner.inputs[i] == "zfs passphrase\n"
+    assert not any(c[0] == "cryptsetup" for c in runner.commands)  # no LUKS below ZFS
+    grub = (root / "etc/default/grub").read_text()
+    assert 'GRUB_CMDLINE_LINUX="rd.vconsole.keymap=de"' in grub
+    assert not any("zfs passphrase" in line for line in runner.lines)
+
+
+def test_zfs_without_kernel_fails(target):
+    with pytest.raises(backend.InstallError, match="No kernel"):
+        run_install(make_config(filesystem="zfs"), target)
+
+
 def test_manual_install_keeps_efi(target):
     cfg = make_config(mode="manual", disk="/dev/sda", root_partition="/dev/sda3",
                       efi_partition="/dev/sda1", format_efi=False, filesystem="ext4",
@@ -201,15 +275,17 @@ def test_invalid_config_is_rejected_before_touching_disks(target, field, value):
     {"encrypt": True, "luks_passphrase": "short"},
     {"encrypt": True, "luks_passphrase": "long enough", "mode": "manual",
      "root_partition": "/dev/sda3", "efi_partition": "/dev/sda1"},
+    {"filesystem": "zfs", "mode": "manual", "root_partition": "/dev/sda3", "efi_partition": "/dev/sda1"},
+    {"filesystem": "xfs"},
 ])
-def test_invalid_encryption_is_rejected(target, overrides):
+def test_invalid_disk_setup_is_rejected(target, overrides):
     root, listing = target
     runner = FakeRunner()
     inst = backend.Installer(make_config(**overrides), runner, edition=EDITION,
                              target=str(root), live_files=str(listing))
     with pytest.raises(backend.InstallError):
         inst.run()
-    assert not any(c[0] in ("wipefs", "sfdisk", "cryptsetup") for c in runner.commands)
+    assert not any(c[0] in ("wipefs", "sfdisk", "cryptsetup", "zpool") for c in runner.commands)
 
 
 def test_dry_run_logs_only(tmp_path, capsys):

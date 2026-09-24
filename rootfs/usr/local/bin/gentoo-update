@@ -1,6 +1,7 @@
 #!/bin/bash
 # One command to update the whole desktop: Portage tree, system packages,
-# cleanup and Flatpak apps.
+# cleanup and Flatpak apps. With automatic snapshots enabled (Btrfs/Snapper or
+# ZFS), a snapshot is taken before and after, so an update can be rolled back.
 set -euo pipefail
 
 if [[ ${EUID} -ne 0 ]]; then
@@ -9,10 +10,18 @@ fi
 
 echo ">>> Syncing the Gentoo repository"
 emerge --sync
+
+pre=$(gentoo-snapshot pre "gentoo-update" 2>/dev/null || true)
+[[ -n ${pre} ]] && echo ">>> Snapshot before the update: ${pre}"
+
 echo ">>> Updating @world"
 emerge --ask --verbose --update --deep --newuse --changed-use @world
 echo ">>> Removing unneeded packages"
 emerge --ask --depclean
+
+if [[ -n ${pre} ]]; then
+	gentoo-snapshot post "${pre}" "gentoo-update" >/dev/null 2>&1 || true
+fi
 echo ">>> Updating configuration files"
 dispatch-conf
 if command -v flatpak >/dev/null 2>&1; then

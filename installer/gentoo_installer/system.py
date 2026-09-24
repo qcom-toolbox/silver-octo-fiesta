@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -211,6 +212,18 @@ def recommended_jobs(threads: int, mem_bytes: int) -> int:
     """Parallel compile jobs: one per thread, but at most one per 2 GiB of RAM."""
     by_mem = int(mem_bytes // (2 * GIB)) if mem_bytes else threads
     return max(1, min(threads, by_mem))
+
+
+def zfs_available() -> bool:
+    """True if ZFS tools and a kernel module for the running kernel exist."""
+    if not shutil.which("zpool"):
+        return False
+    if os.path.isdir("/sys/module/zfs"):
+        return True
+    try:
+        return subprocess.run(["modinfo", "zfs"], capture_output=True, timeout=10, check=False).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def is_uefi() -> bool:

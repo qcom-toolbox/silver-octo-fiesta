@@ -15,6 +15,11 @@ sys-boot/grub mount
 sys-fs/squashfs-tools zstd lz4 xz
 sys-fs/lvm2 lvm -thin
 
+# ZFS (installer option): kernel module rebuilt with every distribution
+# kernel, dracut module for a ZFS root
+sys-fs/zfs dist-kernel rootfs
+sys-fs/zfs-kmod dist-kernel
+
 # Printing / discovery
 net-print/cups zeroconf
 net-dns/avahi mdnsresponder-compat

@@ -209,6 +209,10 @@ install_files() {
 		chmod 755 /usr/local/bin/neofetch
 	fi
 
+	# Snapshots are taken by /etc/cron.*/gentoo-snapshot; drop the cron jobs
+	# some snapper versions install so nothing runs twice.
+	rm -f /etc/cron.hourly/suse.de-snapper /etc/cron.daily/suse.de-snapper
+
 	mkdir -p "${STATE_DIR}"
 	cat >"${STATE_DIR}/edition.conf" <<-EOF
 		DISTRO_NAME="${DISTRO_NAME}"
