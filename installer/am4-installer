@@ -1,0 +1,27 @@
+#!/bin/sh
+# Start the graphical installer as root (pkexec, or sudo as a fallback).
+APPDIR=/usr/lib/am4-installer
+
+if [ "$(id -u)" -ne 0 ]; then
+	case " $* " in
+	*" --dry-run "*) ;;
+	*)
+		# Root cannot rely on the user's runtime dir, so pass an absolute socket path.
+		wl="${WAYLAND_DISPLAY:-}"
+		if [ -n "${wl}" ] && [ "${wl#/}" = "${wl}" ]; then
+			wl="${XDG_RUNTIME_DIR}/${wl}"
+		fi
+		self=$(readlink -f "$0")
+		if command -v pkexec >/dev/null 2>&1; then
+			exec pkexec env DISPLAY="${DISPLAY:-}" WAYLAND_DISPLAY="${wl}" \
+				XAUTHORITY="${XAUTHORITY:-}" XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-}" \
+				QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-}" "${self}" "$@"
+		fi
+		exec sudo DISPLAY="${DISPLAY:-}" WAYLAND_DISPLAY="${wl}" XAUTHORITY="${XAUTHORITY:-}" \
+			XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-}" "${self}" "$@"
+		;;
+	esac
+fi
+
+export PYTHONPATH="${APPDIR}${PYTHONPATH:+:${PYTHONPATH}}"
+exec python3 -m am4_installer "$@"

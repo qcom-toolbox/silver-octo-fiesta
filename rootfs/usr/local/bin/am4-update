@@ -1,0 +1,22 @@
+#!/bin/bash
+# One command to update the whole desktop: Portage tree, system packages,
+# cleanup and Flatpak apps.
+set -euo pipefail
+
+if [[ ${EUID} -ne 0 ]]; then
+	exec sudo "$0" "$@"
+fi
+
+echo ">>> Syncing the Gentoo repository"
+emerge --sync
+echo ">>> Updating @world"
+emerge --ask --verbose --update --deep --newuse --changed-use @world
+echo ">>> Removing unneeded packages"
+emerge --ask --depclean
+echo ">>> Updating configuration files"
+dispatch-conf
+if command -v flatpak >/dev/null 2>&1; then
+	echo ">>> Updating Flatpak applications"
+	flatpak update -y
+fi
+echo ">>> Done."

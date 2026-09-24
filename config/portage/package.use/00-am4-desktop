@@ -1,0 +1,30 @@
+# Plasma desktop pieces
+kde-plasma/plasma-meta bluetooth desktop-portal discover display-manager sddm flatpak gtk networkmanager pulseaudio wallpapers kwallet
+kde-plasma/discover flatpak
+kde-plasma/kwin lock screencast
+x11-misc/sddm elogind -systemd
+
+# Audio: PipeWire is the sound server (works on OpenRC through
+# gentoo-pipewire-launcher started from XDG autostart).
+media-video/pipewire sound-server extra
+
+# Kernel, initramfs and boot
+sys-kernel/installkernel dracut grub
+sys-kernel/linux-firmware compress-zstd initramfs
+sys-boot/grub mount
+sys-fs/squashfs-tools zstd lz4 xz
+sys-fs/lvm2 lvm -thin
+
+# Printing / discovery
+net-print/cups zeroconf
+net-dns/avahi mdnsresponder-compat
+
+# The graphical installer is written in Python + Qt 6
+dev-python/pyside gui widgets
+dev-python/pyside6 gui widgets
+dev-python/PyQt6 gui widgets
+dev-python/pyqt6 gui widgets
+
+# Media
+media-video/mpv vaapi vulkan wayland
+media-video/ffmpeg vaapi vulkan

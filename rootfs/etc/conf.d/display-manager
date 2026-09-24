@@ -1,0 +1,3 @@
+# Started by /etc/init.d/display-manager (gui-libs/display-manager-init)
+CHECKVT=7
+DISPLAYMANAGER="sddm"

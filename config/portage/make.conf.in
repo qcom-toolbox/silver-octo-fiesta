@@ -1,0 +1,32 @@
+# /etc/portage/make.conf - @DISTRO_NAME@ AM4 edition "@EDITION@"
+# CPU: @CPU_DESC@
+# GPU: @GPU_DESC@
+#
+# Everything is compiled for -march=@CPU_MARCH@. Do not copy this system to
+# an older CPU than the one named above.
+
+COMMON_FLAGS="-march=@CPU_MARCH@ -O2 -pipe"
+CFLAGS="${COMMON_FLAGS}"
+CXXFLAGS="${COMMON_FLAGS}"
+FCFLAGS="${COMMON_FLAGS}"
+FFLAGS="${COMMON_FLAGS}"
+RUSTFLAGS="${RUSTFLAGS} -C target-cpu=@CPU_MARCH@"
+CPU_FLAGS_X86="@CPU_FLAGS_X86@"
+
+# Rewritten by the installer to match the installed machine's cores and RAM.
+MAKEOPTS="-j@JOBS@ -l@JOBS@"
+
+VIDEO_CARDS="@VIDEO_CARDS@"
+INPUT_DEVICES="libinput"
+GRUB_PLATFORMS="efi-64 pc"
+
+# Full Wayland Plasma desktop on OpenRC.
+USE="dist-kernel wayland pipewire screencast vaapi vulkan networkmanager bluetooth elogind -systemd flatpak zstd"
+
+ACCEPT_LICENSE="-* @FREE @BINARY-REDISTRIBUTABLE"
+LC_MESSAGES=C.UTF-8
+
+# BEGIN build-only (removed from the finished image)
+FEATURES="${FEATURES} buildpkg parallel-fetch"
+EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkg --jobs=@EMERGE_JOBS@ --load-average=@JOBS@ --with-bdeps=y --quiet-build=y --keep-going=y"
+# END build-only

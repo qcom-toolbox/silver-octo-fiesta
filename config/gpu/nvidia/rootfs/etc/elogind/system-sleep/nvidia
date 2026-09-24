@@ -1,0 +1,12 @@
+#!/bin/sh
+# elogind sleep hook: save/restore NVIDIA VRAM around suspend and hibernate
+# (the systemd units shipped by NVIDIA do not run on OpenRC).
+proc=/proc/driver/nvidia/suspend
+[ -w "${proc}" ] || exit 0
+
+case "$1/$2" in
+	pre/hibernate|pre/hybrid-sleep) echo hibernate > "${proc}" ;;
+	pre/*) echo suspend > "${proc}" ;;
+	post/*) echo resume > "${proc}" ;;
+esac
+exit 0

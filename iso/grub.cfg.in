@@ -1,0 +1,50 @@
+# GRUB menu of the @DISTRO_NAME@ live ISO (@EDITION@)
+set default=0
+set timeout=10
+set timeout_style=menu
+
+insmod all_video
+insmod gfxterm
+insmod part_gpt
+insmod part_msdos
+insmod iso9660
+terminal_output gfxterm
+
+search --no-floppy --set=root --label @ISO_LABEL@
+
+set live="root=live:CDLABEL=@ISO_LABEL@ rd.live.image rd.live.overlay.overlayfs=1"
+set nogpu="modprobe.blacklist=nvidia,nvidia_drm,nvidia_modeset,nvidia_uvm,nouveau,amdgpu rd.driver.blacklist=nvidia,nvidia_drm,nvidia_modeset,nvidia_uvm,nouveau,amdgpu"
+
+menuentry "@DISTRO_NAME@ Live (@CPU_DESC_SHORT@, @GPU_DESC_SHORT@)" --class gentoo {
+	linux /boot/vmlinuz ${live} quiet
+	initrd /boot/initramfs.img
+}
+
+menuentry "@DISTRO_NAME@ Live - copy to RAM (remove the USB stick after boot)" --class gentoo {
+	linux /boot/vmlinuz ${live} rd.live.ram=1 quiet
+	initrd /boot/initramfs.img
+}
+
+menuentry "@DISTRO_NAME@ Live - basic graphics (if the screen stays black)" --class gentoo {
+	linux /boot/vmlinuz ${live} ${nogpu}
+	initrd /boot/initramfs.img
+}
+
+menuentry "@DISTRO_NAME@ Live - verbose boot (troubleshooting)" --class gentoo {
+	linux /boot/vmlinuz ${live} rd.info rd.shell loglevel=7
+	initrd /boot/initramfs.img
+}
+
+if [ "${grub_platform}" = "efi" ]; then
+	menuentry "UEFI firmware settings" {
+		fwsetup
+	}
+fi
+
+menuentry "Reboot" {
+	reboot
+}
+
+menuentry "Power off" {
+	halt
+}

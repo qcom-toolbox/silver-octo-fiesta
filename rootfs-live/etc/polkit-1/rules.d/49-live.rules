@@ -1,0 +1,7 @@
+// Live session only: the live user may do anything without a password
+// (partitioning, running the installer, ...).
+polkit.addRule(function(action, subject) {
+    if (subject.user == "live") {
+        return polkit.Result.YES;
+    }
+});

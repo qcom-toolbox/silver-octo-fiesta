@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Install @DISTRO_NAME@
+GenericName=System Installer
+Comment=Install @DISTRO_NAME@ to this computer
+Exec=am4-installer
+Icon=system-software-install
+Terminal=false
+Categories=System;

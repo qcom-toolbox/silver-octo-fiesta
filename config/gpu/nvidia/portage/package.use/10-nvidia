@@ -1,0 +1,4 @@
+# Open kernel modules: required by RTX 5000 (Blackwell), recommended for
+# RTX 3000/4000. "wayland" pulls in egl-wayland for KWin/Plasma.
+x11-drivers/nvidia-drivers kernel-open wayland
+media-libs/nvidia-vaapi-driver

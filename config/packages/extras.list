@@ -1,0 +1,75 @@
+# Desktop applications and extras.
+#
+# One package per line. Alternatives separated by "|" are tried in order and
+# the first one available in the tree is installed (packages move between
+# categories over time). Lines whose alternatives are all missing are skipped
+# with a warning instead of breaking the build.
+
+# KDE applications
+kde-apps/kate
+kde-apps/ark
+kde-plasma/spectacle | kde-apps/spectacle
+kde-apps/gwenview
+kde-apps/okular
+kde-apps/kcalc | kde-utils/kcalc
+kde-apps/filelight
+kde-apps/kwalletmanager
+kde-misc/kdeconnect | kde-apps/kdeconnect
+kde-apps/kdialog
+kde-plasma/discover
+kde-plasma/plasma-nm
+kde-plasma/plasma-pa
+kde-plasma/print-manager | kde-apps/print-manager
+kde-plasma/kde-gtk-config
+kde-plasma/xdg-desktop-portal-kde
+kde-plasma/plasma-systemmonitor
+kde-plasma/plasma-disks
+kde-plasma/kinfocenter
+kde-plasma/bluedevil
+kde-plasma/powerdevil
+sys-block/partitionmanager | kde-apps/partitionmanager
+
+# Internet, office, media (binary builds keep build time reasonable)
+www-client/firefox-bin
+mail-client/thunderbird-bin
+app-office/libreoffice-bin
+media-video/haruna
+media-video/mpv
+media-sound/elisa | kde-apps/elisa
+
+# Software from Flathub (Steam, Discord, ...) through Discover
+sys-apps/flatpak
+
+# System information and monitoring
+app-misc/neofetch
+app-misc/fastfetch
+sys-process/btop
+sys-apps/lm-sensors
+media-video/libva-utils
+x11-apps/mesa-progs
+dev-util/vulkan-tools
+
+# System
+sys-block/zram-init
+sys-boot/os-prober
+sys-apps/plocate
+sys-fs/ntfs3g
+sys-fs/exfatprogs
+net-print/cups
+net-dns/avahi
+app-portage/eix
+app-portage/cpuid2cpuflags
+app-eselect/eselect-repository
+app-editors/vim
+app-arch/7zip | app-arch/p7zip
+app-arch/unzip
+app-arch/zip
+
+# Fonts
+media-fonts/noto
+media-fonts/noto-emoji
+media-fonts/liberation-fonts
+media-fonts/dejavu
+
+# Qt bindings used by the graphical installer (the first available is used)
+dev-python/pyside:6 | dev-python/pyside6 | dev-python/PyQt6 | dev-python/pyqt6

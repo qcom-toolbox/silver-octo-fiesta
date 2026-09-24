@@ -1,0 +1,49 @@
+# Packages the image cannot work without. Every atom here must exist in
+# ::gentoo; the build fails if one cannot be installed.
+
+# Kernel, firmware, boot
+sys-kernel/gentoo-kernel
+sys-kernel/linux-firmware
+sys-kernel/installkernel
+sys-kernel/dracut
+sys-boot/grub
+sys-boot/efibootmgr
+sys-fs/lvm2
+
+# Tools needed to build the live ISO and by the installer
+sys-fs/squashfs-tools
+dev-libs/libisoburn
+sys-fs/mtools
+sys-fs/dosfstools
+sys-fs/btrfs-progs
+sys-fs/e2fsprogs
+sys-apps/util-linux
+sys-apps/pciutils
+sys-apps/usbutils
+net-misc/rsync
+
+# OpenRC session and system services
+sys-apps/dbus
+sys-auth/elogind
+sys-auth/polkit
+gui-libs/display-manager-init
+net-misc/networkmanager
+net-wireless/bluez
+net-misc/chrony
+app-admin/sysklogd
+sys-process/cronie
+app-admin/sudo
+
+# KDE Plasma (Wayland) with SDDM
+kde-plasma/plasma-meta
+x11-misc/sddm
+kde-plasma/sddm-kcm
+kde-apps/dolphin
+kde-apps/konsole
+media-video/pipewire
+media-video/wireplumber
+
+# Must-haves
+sys-process/htop
+app-portage/gentoolkit
+dev-vcs/git

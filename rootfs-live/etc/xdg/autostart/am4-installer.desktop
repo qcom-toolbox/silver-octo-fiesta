@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=@DISTRO_NAME@ Installer
+Exec=am4-installer
+Icon=system-software-install
+Terminal=false
+OnlyShowIn=KDE;
+X-KDE-autostart-phase=2
