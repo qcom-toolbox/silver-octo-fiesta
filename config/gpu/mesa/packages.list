@@ -1,0 +1,3 @@
+# Open graphics extras (same format as config/packages/extras.list)
+# VA-API video decoding on Intel iGPUs (Gen 8+) and Arc; AMD's is part of mesa.
+media-libs/libva-intel-media-driver

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Start the graphical installer as root (pkexec, or sudo as a fallback).
-APPDIR=/usr/lib/am4-installer
+APPDIR=/usr/lib/gentoo-installer
 
 if [ "$(id -u)" -ne 0 ]; then
 	case " $* " in
@@ -24,4 +24,4 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 export PYTHONPATH="${APPDIR}${PYTHONPATH:+:${PYTHONPATH}}"
-exec python3 -m am4_installer "$@"
+exec python3 -m gentoo_installer "$@"

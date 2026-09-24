@@ -18,9 +18,9 @@ from typing import Callable, Sequence
 
 from . import system
 
-TARGET = "/mnt/am4-target"
-SOURCE_MOUNT = "/mnt/am4-source"
-LIVE_FILES = "/usr/share/am4/live-files.list"
+TARGET = "/mnt/gentoo-target"
+SOURCE_MOUNT = "/mnt/gentoo-source"
+LIVE_FILES = "/usr/share/gentoo-desktop/live-files.list"
 # Pristine lower layer of the live root when booted with rd.live.overlay.overlayfs.
 LIVE_ROOT_BASE = "/run/rootfsbase"
 SQUASHFS_CANDIDATES = (

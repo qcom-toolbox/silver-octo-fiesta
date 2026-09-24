@@ -1,3 +1,4 @@
 sys-kernel/linux-firmware linux-fw-redistributable
 www-client/firefox-bin all-rights-reserved
 mail-client/thunderbird-bin all-rights-reserved
+sys-firmware/intel-microcode intel-ucode

@@ -1,4 +1,4 @@
-"""Entry point: python3 -m am4_installer [--dry-run]"""
+"""Entry point: python3 -m gentoo_installer [--dry-run]"""
 
 import argparse
 import os
@@ -6,7 +6,7 @@ import sys
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(prog="am4-installer", description=__doc__)
+    parser = argparse.ArgumentParser(prog="gentoo-installer", description=__doc__)
     parser.add_argument("--dry-run", action="store_true",
                         help="walk through the installer and log every command without changing anything")
     parser.add_argument("--edition", default=None, help="path to an edition.conf (testing)")

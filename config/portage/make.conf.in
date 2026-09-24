@@ -1,16 +1,16 @@
-# /etc/portage/make.conf - @DISTRO_NAME@ AM4 edition "@EDITION@"
+# /etc/portage/make.conf - @DISTRO_NAME@ desktop edition "@EDITION@"
 # CPU: @CPU_DESC@
 # GPU: @GPU_DESC@
 #
-# Everything is compiled for -march=@CPU_MARCH@. Do not copy this system to
-# an older CPU than the one named above.
+# Everything is compiled with "@CPU_CFLAGS@". Do not copy this system to a
+# CPU older than the one named above.
 
-COMMON_FLAGS="-march=@CPU_MARCH@ -O2 -pipe"
+COMMON_FLAGS="@CPU_CFLAGS@ -O2 -pipe"
 CFLAGS="${COMMON_FLAGS}"
 CXXFLAGS="${COMMON_FLAGS}"
 FCFLAGS="${COMMON_FLAGS}"
 FFLAGS="${COMMON_FLAGS}"
-RUSTFLAGS="${RUSTFLAGS} -C target-cpu=@CPU_MARCH@"
+RUSTFLAGS="${RUSTFLAGS} -C target-cpu=@CPU_RUST@"
 CPU_FLAGS_X86="@CPU_FLAGS_X86@"
 
 # Rewritten by the installer to match the installed machine's cores and RAM.

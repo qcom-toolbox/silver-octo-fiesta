@@ -1,2 +1,4 @@
-# NVIDIA RTX 3000/4000/5000 extras (same format as config/packages/extras.list)
+# NVIDIA RTX extras (same format as config/packages/extras.list)
 media-libs/nvidia-vaapi-driver
+# Video decoding on an Intel iGPU next to the NVIDIA card
+media-libs/libva-intel-media-driver

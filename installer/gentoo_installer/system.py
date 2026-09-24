@@ -9,7 +9,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-EDITION_FILE = "/usr/share/am4/edition.conf"
+EDITION_FILE = "/usr/share/gentoo-desktop/edition.conf"
 EFI_PARTTYPE = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 # Where dracut's dmsquash-live mounts the boot medium.
 LIVE_MEDIUM_MOUNT = "/run/initramfs/live"
@@ -28,8 +28,10 @@ def read_edition(path: str = EDITION_FILE) -> dict[str, str]:
         "DISTRO_ID": "gentoo",
         "EDITION": "unknown",
         "CPU_DESC": "unknown CPU edition",
-        "CPU_MARCH": "",
-        "CPU_MIN_FAMILY": "0",
+        "CPU_ID": "",
+        "CPU_VENDOR": "",
+        "CPU_CFLAGS": "",
+        "CPU_REQUIRED_FLAGS": "",
         "GPU_ID": "",
         "GPU_DESC": "",
         "LIVE_USER": "live",
@@ -60,6 +62,7 @@ class CpuInfo:
     model: str = "Unknown CPU"
     family: int = 0
     threads: int = 1
+    flags: frozenset[str] = frozenset()
 
 
 def parse_cpuinfo(text: str) -> CpuInfo:
@@ -80,6 +83,8 @@ def parse_cpuinfo(text: str) -> CpuInfo:
                 info.family = int(value)
             except ValueError:
                 pass
+        elif key == "flags" and not info.flags:
+            info.flags = frozenset(value.split())
     info.threads = max(info.threads, 1)
     return info
 
@@ -91,36 +96,59 @@ def cpu_info() -> CpuInfo:
         return CpuInfo(threads=os.cpu_count() or 1)
 
 
+# Editions built by build.sh (config/cpu/*.conf), for messages.
+CPU_EDITIONS = {
+    "zenplus": "AMD Ryzen 1000-3000 (zenplus)",
+    "zen3": "AMD Ryzen 5000 (zen3)",
+    "zen4": "AMD Ryzen 7000 (zen4)",
+    "zen5": "AMD Ryzen 9000 (zen5)",
+    "intel": "Intel Core 10th gen+ (intel)",
+}
+_X86_64_V3 = {"avx2", "fma", "bmi1", "bmi2", "movbe", "f16c"}
+
+
+def recommended_cpu_edition(cpu: CpuInfo) -> str | None:
+    """The best tuned edition for this CPU, or None if no edition runs on it."""
+    if cpu.flags and not _X86_64_V3 <= cpu.flags:
+        return None  # no AVX2 (e.g. Pentium/Celeron): too old for every edition
+    if cpu.vendor == "GenuineIntel":
+        return "intel"
+    if cpu.vendor == "AuthenticAMD":
+        if cpu.family >= 26:
+            return "zen5"
+        if cpu.family == 25:
+            return "zen4" if "avx512f" in cpu.flags else "zen3"
+        if cpu.family == 23:
+            return "zenplus"
+    return None
+
+
 def cpu_compatibility(edition: dict[str, str], cpu: CpuInfo) -> tuple[str, str] | None:
     """Return (severity, message) if this CPU is a poor or impossible match.
 
     severity is "error" when the installed system would crash with
-    "Illegal instruction", "warning" when it would work but is not tuned.
+    "Illegal instruction", "warning" when it works but another edition is
+    better tuned for this CPU.
     """
-    march = edition.get("CPU_MARCH", "")
-    try:
-        min_family = int(edition.get("CPU_MIN_FAMILY", "0"))
-    except ValueError:
-        min_family = 0
-    if not march:
-        return None
-    if cpu.vendor != "AuthenticAMD":
+    required = set(edition.get("CPU_REQUIRED_FLAGS", "").split())
+    if not edition.get("CPU_ID") or not cpu.flags:
+        return None  # unknown edition or CPU: nothing to compare
+    best = recommended_cpu_edition(cpu)
+    use_instead = (f" Use the {CPU_EDITIONS.get(best, best)} edition instead."
+                   if best else " No edition supports this processor.")
+    missing = sorted(required - cpu.flags)
+    if missing:
         return (
             "error",
-            f"This image is compiled for AMD Ryzen ({march}) but this computer's "
-            f"processor is a {cpu.model}. Programs will likely crash with 'Illegal instruction'.",
+            f"This image is built for {edition.get('CPU_DESC')} and uses instructions your "
+            f"{cpu.model} does not have ({', '.join(missing)}). Programs would crash with "
+            f"'Illegal instruction'.{use_instead}",
         )
-    if cpu.family < min_family:
-        return (
-            "error",
-            f"This image is compiled for {edition.get('CPU_DESC')} ({march}). "
-            f"Your {cpu.model} is older and cannot run it. Use the Zen+ (zenplus) edition instead.",
-        )
-    if march == "znver1" and cpu.family >= 25:
+    if best and best != edition["CPU_ID"]:
         return (
             "warning",
-            f"Your {cpu.model} is a Zen 3 or newer CPU. This Zen+ image works, but the "
-            "Zen 3 (zen3) edition is faster on it.",
+            f"This image works on your {cpu.model}, but the {CPU_EDITIONS.get(best, best)} "
+            "edition is tuned for it and runs faster.",
         )
     return None
 

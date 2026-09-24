@@ -1,5 +1,6 @@
 #!/bin/bash
-# Build a Gentoo Linux live/installer ISO optimised for AMD Ryzen AM4.
+# Build a Gentoo Linux live/installer ISO optimised for one CPU generation
+# (AMD Ryzen or Intel Core, 2017-2026) and one graphics stack.
 #
 #   sudo ./build.sh --cpu zen3 --gpu nvidia
 #
@@ -17,12 +18,16 @@ usage() {
 Usage: sudo $0 --cpu <edition> [options]
 
 Editions:
-  -c, --cpu <zenplus|zen3|all>  CPU the image is compiled for
-                                  zenplus: Ryzen 1000/2000 (Ryzen 5 2600X), also runs on Zen 2+
-                                  zen3:    Ryzen 5000 (Ryzen 7 5700G, Ryzen 9 5950X)
-  -g, --gpu <nvidia|amd|all>    Graphics stack (default: nvidia)
-                                  nvidia:  GeForce RTX 3000/4000/5000 + AMD iGPU
-                                  amd:     Radeon cards / Ryzen APU graphics only
+  -c, --cpu <edition|all>       CPU the image is compiled for
+                                  zenplus: Ryzen 1000-3000 (e.g. Ryzen 5 2600X)
+                                  zen3:    Ryzen 5000 (e.g. Ryzen 7 5700G, Ryzen 9 5950X)
+                                  zen4:    Ryzen 7000 (e.g. Ryzen 7 7800X3D, Ryzen 9 7950X)
+                                  zen5:    Ryzen 9000 (e.g. Ryzen 7 9800X3D, Ryzen 9 9950X)
+                                  intel:   Intel Core 10th gen and newer, Core Ultra
+  -g, --gpu <nvidia|mesa|all>   Graphics stack (default: nvidia)
+                                  nvidia:  GeForce RTX 3000/4000/5000 (+ AMD/Intel iGPU)
+                                  mesa:    AMD Radeon RX 6000-9000, Intel Arc / Iris Xe,
+                                           integrated graphics (aliases: amd, intel)
 
 Options:
   -s, --step <list>     Comma separated steps to run: fetch,build,iso (default: all)
@@ -68,8 +73,8 @@ done
 # "all" builds every combination by re-running this script once per edition.
 if [[ ${CPU} == all || ${GPU} == all ]]; then
 	cpus=("${CPU}") gpus=("${GPU}")
-	[[ ${CPU} == all ]] && cpus=(zenplus zen3)
-	[[ ${GPU} == all ]] && gpus=(nvidia amd)
+	[[ ${CPU} == all ]] && cpus=(zenplus zen3 zen4 zen5 intel)
+	[[ ${GPU} == all ]] && gpus=(nvidia mesa)
 	# Drop the --cpu/--gpu values from the original arguments; they are replaced below.
 	args=() skip=0
 	for a in "${ORIG_ARGS[@]}"; do
@@ -85,6 +90,8 @@ if [[ ${CPU} == all || ${GPU} == all ]]; then
 	exit 0
 fi
 
+# AMD and Intel graphics share the open "mesa" edition.
+[[ ${GPU} == amd || ${GPU} == intel ]] && GPU=mesa
 [[ -f ${TOP}/config/cpu/${CPU}.conf ]] || die "Unknown CPU edition '${CPU}' (see config/cpu/)"
 [[ -f ${TOP}/config/gpu/${GPU}/gpu.conf ]] || die "Unknown GPU edition '${GPU}' (see config/gpu/)"
 [[ ${JOBS} =~ ^[1-9][0-9]*$ ]] || die "--jobs must be a positive number"
@@ -120,17 +127,17 @@ check_host() {
 		command -v "${cmd}" >/dev/null || die "Missing host tool: ${cmd}"
 	done
 
-	# Code compiled with -march=${CPU_MARCH} is executed during the build
+	# Code compiled with "${CPU_CFLAGS}" is executed during the build
 	# (configure checks, build tools), so the host CPU must support it.
 	local flag missing=()
-	for flag in ${CPU_REQUIRED_HOST_FLAGS}; do
+	for flag in ${CPU_REQUIRED_FLAGS}; do
 		grep -qw -- "${flag}" /proc/cpuinfo || missing+=("${flag}")
 	done
 	if ((${#missing[@]})); then
 		if ((FORCE)); then
 			warn "Host CPU lacks ${missing[*]}: build may crash with 'Illegal instruction'."
 		else
-			die "This machine's CPU lacks ${missing[*]} and cannot run code built for ${CPU_MARCH}.
+			die "This machine's CPU lacks ${missing[*]} and cannot run code built with ${CPU_CFLAGS}.
     Build the '${CPU}' edition on a ${CPU_DESC} (or newer) machine, or pass --force."
 		fi
 	fi
@@ -166,8 +173,8 @@ mount_chroot() {
 
 	bind_mount "${DISTFILES}" /var/cache/distfiles
 	bind_mount "${BINPKGS}" /var/cache/binpkgs
-	bind_mount "${TOP}" /mnt/am4-src ro
-	bind_mount "${OUT}" /mnt/am4-out
+	bind_mount "${TOP}" /mnt/gentoo-src ro
+	bind_mount "${OUT}" /mnt/gentoo-out
 }
 
 umount_chroot() {
@@ -236,26 +243,26 @@ step_fetch() {
 		warn "gpg not installed: only the checksum was verified"
 	fi
 
-	if [[ -f ${ROOT}/.am4-stage3 ]]; then
-		info "Root filesystem already exists ($(<"${ROOT}/.am4-stage3")), not re-extracting"
+	if [[ -f ${ROOT}/.gentoo-stage3 ]]; then
+		info "Root filesystem already exists ($(<"${ROOT}/.gentoo-stage3")), not re-extracting"
 		return
 	fi
 	info "Extracting ${file} to ${ROOT}"
 	mkdir -p "${ROOT}"
 	tar xpf "${STAGE3_DIR}/${file}" --xattrs-include='*.*' --numeric-owner -C "${ROOT}"
-	echo "${file}" >"${ROOT}/.am4-stage3"
+	echo "${file}" >"${ROOT}/.gentoo-stage3"
 }
 
 step_build() {
-	[[ -f ${ROOT}/.am4-stage3 ]] || die "No root filesystem yet, run the 'fetch' step first"
+	[[ -f ${ROOT}/.gentoo-stage3 ]] || die "No root filesystem yet, run the 'fetch' step first"
 	mount_chroot
 	info "Building the ${EDITION} system inside the chroot (this takes hours)"
-	run_chroot /mnt/am4-src/scripts/chroot/build-system.sh
-	touch "${ROOT}/.am4-built"
+	run_chroot /mnt/gentoo-src/scripts/chroot/build-system.sh
+	touch "${ROOT}/.gentoo-built"
 }
 
 step_iso() {
-	[[ -f ${ROOT}/.am4-built ]] || die "System not built yet, run the 'build' step first"
+	[[ -f ${ROOT}/.gentoo-built ]] || die "System not built yet, run the 'build' step first"
 	mount_chroot
 	rm -rf "${ISOTREE}"
 	# The ISO tree lives outside the rootfs, and the rootfs is bind mounted
@@ -267,7 +274,7 @@ step_iso() {
 	MOUNTS+=("${ROOT}/mnt/livesrc")
 
 	info "Creating ${ISO_NAME}"
-	run_chroot /mnt/am4-src/scripts/chroot/make-iso.sh
+	run_chroot /mnt/gentoo-src/scripts/chroot/make-iso.sh
 	umount_chroot
 	rm -rf "${ISOTREE}"
 
@@ -279,7 +286,7 @@ step_iso() {
 # --------------------------------------------------------------------------
 check_host
 mkdir -p "${WORK}" "${OUT}" "${DISTFILES}" "${BINPKGS}"
-info "${DISTRO_NAME} AM4 - edition ${EDITION}"
+info "${DISTRO_NAME} - edition ${EDITION}"
 info "  CPU: ${CPU_DESC}"
 info "  GPU: ${GPU_DESC}"
 

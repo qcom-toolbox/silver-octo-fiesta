@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=@DISTRO_NAME@ Installer
-Exec=am4-installer
+Exec=gentoo-installer
 Icon=system-software-install
 Terminal=false
 OnlyShowIn=KDE;

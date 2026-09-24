@@ -3,10 +3,10 @@
 # the compressed root filesystem and the hybrid BIOS/UEFI ISO.
 #   /mnt/livesrc  read-only, non-recursive bind mount of the finished rootfs
 #   /mnt/isotree  empty directory that becomes the ISO contents
-#   /mnt/am4-out  output directory
+#   /mnt/gentoo-out  output directory
 set -euo pipefail
 
-SRC=/mnt/am4-src
+SRC=/mnt/gentoo-src
 # shellcheck source=../lib.sh
 source "${SRC}/scripts/lib.sh"
 # shellcheck source=../../config/distro.conf
@@ -45,7 +45,7 @@ mksquashfs /mnt/livesrc "${TREE}/LiveOS/squashfs.img" \
 	-wildcards -e \
 	'proc/*' 'sys/*' 'dev/*' 'run/*' 'tmp/*' 'mnt/*' \
 	'var/tmp/*' 'var/cache/distfiles/*' 'var/cache/binpkgs/*' \
-	'var/lib/am4-build' '.am4-*' 'root/.bash_history'
+	'var/lib/gentoo-desktop-build' '.gentoo-*' 'root/.bash_history'
 
 # Used through render_template.
 # shellcheck disable=SC2034
@@ -54,8 +54,8 @@ CPU_DESC_SHORT=${CPU_DESC%% (*}
 GPU_DESC_SHORT=${GPU_DESC%% (*}
 cp "${SRC}/iso/grub.cfg.in" "${TREE}/boot/grub/grub.cfg"
 render_template "${TREE}/boot/grub/grub.cfg" DISTRO_NAME EDITION ISO_LABEL CPU_DESC_SHORT GPU_DESC_SHORT
-cp "/usr/share/am4/edition.conf" "${TREE}/edition.conf"
+cp "/usr/share/gentoo-desktop/edition.conf" "${TREE}/edition.conf"
 
 info "Creating the hybrid BIOS/UEFI ISO"
-grub-mkrescue -o "/mnt/am4-out/${ISO_NAME}" "${TREE}" -- -volid "${ISO_LABEL}"
-info "ISO size: $(du -h "/mnt/am4-out/${ISO_NAME}" | cut -f1)"
+grub-mkrescue -o "/mnt/gentoo-out/${ISO_NAME}" "${TREE}" -- -volid "${ISO_LABEL}"
+info "ISO size: $(du -h "/mnt/gentoo-out/${ISO_NAME}" | cut -f1)"

@@ -28,3 +28,6 @@ dev-python/pyqt6 gui widgets
 # Media
 media-video/mpv vaapi vulkan wayland
 media-video/ffmpeg vaapi vulkan
+
+# Intel CPUs: install the microcode for every Intel CPU, not only the build host's
+sys-firmware/intel-microcode -hostonly initramfs

@@ -11,8 +11,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: shellcheck
         run: |
-          shellcheck build.sh scripts/lib.sh scripts/chroot/*.sh installer/am4-installer \
-            rootfs/usr/local/bin/am4-update rootfs/etc/bash/bashrc.d/*.sh \
+          shellcheck build.sh scripts/lib.sh scripts/chroot/*.sh installer/gentoo-installer \
+            rootfs/usr/local/bin/gentoo-update rootfs/etc/bash/bashrc.d/*.sh \
             config/gpu/nvidia/rootfs/etc/elogind/system-sleep/nvidia
 
   installer:

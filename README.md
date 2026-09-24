@@ -1,7 +1,8 @@
-# Gentoo Linux for AMD Ryzen AM4
+# Gentoo Linux desktop
 
 This repository builds a Gentoo Linux live and installer ISO for AMD Ryzen
-AM4 desktops. The whole system is compiled for your CPU generation. It boots
+(AM4 and AM5) and Intel Core desktops, with NVIDIA, AMD or Intel graphics.
+The whole system is compiled for your CPU generation. It boots
 straight into a full Wayland KDE Plasma desktop and runs OpenRC (no systemd).
 A graphical installer puts it on your disk in a few clicks.
 
@@ -9,8 +10,9 @@ A graphical installer puts it on your disk in a few clicks.
 |---|---|
 | **Base** | Gentoo `default/linux/amd64/23.0/desktop/plasma` profile, OpenRC, stage3 `desktop-openrc` |
 | **Desktop** | KDE Plasma 6 on Wayland, SDDM with a Wayland greeter (no Xorg needed) |
-| **Kernel** | `sys-kernel/gentoo-kernel` plus an AM4 config fragment (amd-pstate, 1000 Hz, full preemption, k10temp) |
-| **Graphics** | NVIDIA RTX 3000/4000/5000 (open kernel modules), or AMD Radeon / Ryzen APU (mesa) |
+| **Kernel** | `sys-kernel/gentoo-kernel` plus a desktop config fragment (amd-pstate/intel_pstate, 1000 Hz, full preemption, i915 + xe for Intel graphics) |
+| **CPUs** | AMD Ryzen 1000–9000, Intel Core 10th gen (2020) and newer, Core Ultra |
+| **Graphics** | NVIDIA RTX 3000/4000/5000 (open kernel modules), or AMD Radeon RX 6000–9000 / Intel Arc / integrated graphics (mesa) |
 | **Tools** | sudo, neofetch, fastfetch, hyfetch, screenfetch, htop, btop, atop, KDE Partition Manager, Konsole, Dolphin, Kate… |
 | **Installer** | Graphical Qt 6 wizard with automatic or manual (dual-boot) partitioning, Btrfs or ext4, UEFI or BIOS |
 
@@ -19,37 +21,54 @@ A graphical installer puts it on your disk in a few clicks.
 
 ## Which ISO do I need?
 
-There are two CPU editions. Code compiled for Zen 3 uses instructions such as
-VAES and VPCLMULQDQ, which a Zen+ CPU does not have, so one image cannot be
-tuned for both. Each CPU edition comes with two graphics flavours.
+Pick one **CPU edition** and one **graphics edition**. Each CPU edition is
+compiled for its generation. A newer generation's code uses instructions
+(AVX-512, VAES, ...) that older CPUs lack, so one image cannot be tuned for all.
 
-| Your CPU | CPU edition | `-march` |
+| Your CPU | CPU edition | Compiled with |
 |---|---|---|
-| Ryzen 5 **2600X** (and every Ryzen 1000/2000/3000) | `zenplus` | `znver1` |
-| Ryzen 7 **5700G**, Ryzen 9 **5950X** (every Ryzen 5000) | `zen3` | `znver3` |
+| AMD Ryzen 1000 / 2000 / 3000 (e.g. **2600X**, 3700X) | `zenplus` | `-march=znver1` |
+| AMD Ryzen 5000 (e.g. **5700G**, **5950X**, 5800X3D) | `zen3` | `-march=znver3` |
+| AMD Ryzen 7000, AM5 (e.g. 7600X, **7800X3D**, **7950X**) | `zen4` | `-march=znver4` |
+| AMD Ryzen 9000, AM5 (e.g. 9700X, **9800X3D**, **9950X**) | `zen5` | `-march=znver5` |
+| Intel Core 10th–14th gen, Core Ultra 100/200 (2020 and newer) | `intel` | `-march=x86-64-v3 -mtune=intel` |
 
-| Your graphics card | GPU flavour |
+Intel CPUs share one edition. Their generations differ in instruction sets
+(12th gen and newer, for example, have no AVX-512), so the edition targets
+the AVX2 level all 2020+ Core CPUs have. It also includes the Intel microcode
+package. Pentium and Celeron models without AVX2 are not supported.
+
+| Your graphics | Graphics edition |
 |---|---|
-| GeForce **RTX 3000 / 4000 / 5000** | `nvidia`: NVIDIA open kernel modules, which RTX 5000 requires. The amdgpu driver is included too, so the 5700G's iGPU also works |
-| Radeon card, or only the 5700G's integrated graphics | `amd`: mesa only, smaller image |
+| NVIDIA GeForce **RTX 3000 / 4000 / 5000** | `nvidia`: NVIDIA open kernel modules, which RTX 5000 requires. AMD and Intel integrated graphics also work |
+| AMD Radeon **RX 6000 / 7000 / 9000**, Intel **Arc** A/B series, or only integrated graphics (Ryzen APU, Intel UHD / Iris Xe) | `mesa`: open-source drivers only, smaller image |
 
-This gives four ISOs, for example:
+Examples:
 
-- `gentoo-am4-zenplus-nvidia-YYYYMMDD.iso` for a 2600X with an RTX 3070
-- `gentoo-am4-zen3-nvidia-YYYYMMDD.iso` for a 5950X with an RTX 5080, or a 5700G with an RTX 4070
-- `gentoo-am4-zen3-amd-YYYYMMDD.iso` for a 5700G using only its iGPU
+- `gentoo-desktop-zenplus-nvidia-YYYYMMDD.iso` for a Ryzen 5 2600X with an RTX 3070
+- `gentoo-desktop-zen3-nvidia-YYYYMMDD.iso` for a Ryzen 9 5950X with an RTX 5080
+- `gentoo-desktop-zen3-mesa-YYYYMMDD.iso` for a Ryzen 7 5700G using only its iGPU
+- `gentoo-desktop-zen4-mesa-YYYYMMDD.iso` for a Ryzen 7 7800X3D with a Radeon RX 7900 XTX
+- `gentoo-desktop-zen5-nvidia-YYYYMMDD.iso` for a Ryzen 9 9950X with an RTX 4090
+- `gentoo-desktop-intel-mesa-YYYYMMDD.iso` for a Core i5-12400 with an Intel Arc B580
 
-The installer checks the CPU. If you boot the wrong edition, for example
-`zen3` on a 2600X, it warns you before installing.
+The installer checks the CPU. If you boot an edition that is too new for your
+processor, for example `zen4` on a 2600X, it warns you before installing and
+names the edition to use. If an older edition runs on your CPU but a better one
+exists, it tells you that too.
 
 ## Building an ISO
 
 ### Requirements
 
 - A Linux x86_64 machine with root access. Any distribution works.
-- **The build machine's CPU must be able to run the edition's code.** Build
-  `zen3` on a Ryzen 5000 or newer. `zenplus` builds on any Zen+ or newer
-  machine. `build.sh` checks this for you.
+- **The build machine's CPU must be able to run the edition's code.**
+  `build.sh` checks this for you:
+  - `zen3`: build on a Ryzen 5000 or newer.
+  - `zen4`: build on a Ryzen 7000 or newer.
+  - `zen5`: build on a Ryzen 9000.
+  - `zenplus`: builds on any AMD Ryzen.
+  - `intel`: builds on any 2020+ Intel Core or on any Ryzen.
 - About 60 GB of free disk space per edition, plus about 20 GB for the shared caches.
 - 16 GB of RAM or more is recommended.
 - Host tools: `bash curl tar xz sha256sum chroot mount`. `gpg` is recommended
@@ -69,7 +88,13 @@ sudo ./build.sh --cpu zen3 --gpu nvidia
 # Ryzen 2600X with a GeForce RTX card
 sudo ./build.sh --cpu zenplus --gpu nvidia
 
-# Every combination (4 ISOs)
+# Ryzen 9000 with a Radeon card
+sudo ./build.sh --cpu zen5 --gpu mesa
+
+# Intel Core (2020+) with Intel Arc or integrated graphics
+sudo ./build.sh --cpu intel --gpu mesa
+
+# Every combination (10 ISOs)
 sudo ./build.sh --cpu all --gpu all
 ```
 
@@ -79,11 +104,11 @@ steps, and you can run them separately with `--step`:
 | Step | What happens |
 |---|---|
 | `fetch` | Downloads the latest `stage3-amd64-desktop-openrc`, checks its SHA256 and GPG signature, and extracts it to `work/<edition>/rootfs` |
-| `build` | Inside the chroot: sets up Portage and the Plasma profile, recompiles `@world` with `-march=znver1/znver3`, then installs the kernel, drivers, Plasma, the applications and the installer, configures OpenRC services and creates the live user |
+| `build` | Inside the chroot: sets up Portage and the Plasma profile, recompiles `@world` with the edition's `-march`, then installs the kernel, drivers, Plasma, the applications and the installer, configures OpenRC services and creates the live user |
 | `iso` | Builds a dracut `dmsquash-live` initramfs, compresses the root filesystem with squashfs (zstd), and runs `grub-mkrescue` to make a hybrid BIOS/UEFI ISO |
 
-Compiling everything from source takes many hours: roughly 6–10 h on a 5950X
-and a lot more on a 2600X. Useful options:
+Compiling everything from source takes many hours: roughly 5–10 h on a 5950X,
+7950X or 9950X, and a lot more on a 6-core CPU such as the 2600X. Useful options:
 
 - `--binhost` uses Gentoo's official **x86-64-v3** binary packages wherever
   they match. The build is much faster, but those packages are tuned less
@@ -98,7 +123,7 @@ and a lot more on a 2600X. Useful options:
 ### Write the ISO to a USB stick
 
 ```sh
-sudo dd if=out/gentoo-am4-zen3-nvidia-*.iso of=/dev/sdX bs=4M status=progress oflag=sync
+sudo dd if=out/gentoo-desktop-zen3-nvidia-*.iso of=/dev/sdX bs=4M status=progress oflag=sync
 ```
 
 The ISO also works with Ventoy, Fedora Media Writer and similar tools. It
@@ -113,7 +138,7 @@ The GRUB menu offers:
 
 - **Live**: the normal boot option.
 - **Copy to RAM**: after booting you can remove the USB stick.
-- **Basic graphics**: disables the NVIDIA and amdgpu drivers. Use it if the screen stays black.
+- **Basic graphics**: disables the NVIDIA, AMD and Intel graphics drivers. Use it if the screen stays black.
 - **Verbose boot**: for troubleshooting.
 
 The live session logs in automatically as `live` (no password, passwordless
@@ -141,18 +166,18 @@ The installer has these steps: **Welcome → Location → Disk → User → Summ
   `MAKEOPTS` to match your cores and RAM, and installs GRUB. If it finds other
   operating systems with os-prober, it adds them to the boot menu.
 
-The log is kept at `/var/log/am4-installer.log`.
+The log is kept at `/var/log/gentoo-installer.log`.
 
 To try the installer without touching any disk, even on a non-Gentoo machine
 with PySide6 installed, run:
 
 ```sh
-cd installer && python3 -m am4_installer --dry-run
+cd installer && python3 -m gentoo_installer --dry-run
 ```
 
 ## After installing
 
-- `am4-update`: syncs Portage, updates `@world` and `--depclean`s, runs
+- `gentoo-update`: syncs Portage, updates `@world` and `--depclean`s, runs
   `dispatch-conf` and updates Flatpak apps.
 - **Discover** installs Flatpak apps from Flathub, such as Steam, Discord or
   OBS. The system already has `vm.max_map_count` raised for games.
@@ -164,6 +189,9 @@ cd installer && python3 -m am4_installer --dry-run
 - NVIDIA systems are preconfigured: `nvidia_drm.modeset=1 fbdev=1`, early
   loading in the initramfs, nouveau blacklisted, and an elogind sleep hook so
   suspend and resume work on OpenRC.
+- Intel systems get early-loaded Intel microcode. AMD microcode comes with
+  `linux-firmware`. Video decoding works on AMD (mesa), Intel
+  (`intel-media-driver`) and NVIDIA (`nvidia-vaapi-driver`).
 - The installed `/etc/portage/make.conf` keeps the same `-march` and
   `CPU_FLAGS_X86`. Everything you compile later is tuned for your CPU too.
 
@@ -173,35 +201,37 @@ cd installer && python3 -m am4_installer --dry-run
 build.sh                    host-side driver: fetch → build → iso
 config/
   distro.conf               name (Gentoo Linux), profile, stage3 flavour
-  cpu/{zenplus,zen3}.conf   -march, CPU_FLAGS_X86, compatibility checks
-  gpu/{nvidia,amd}/         VIDEO_CARDS, driver USE flags/licenses, extra files
-  portage/                  make.conf template, package.use/license/keywords, @am4-core set
+  cpu/*.conf                zenplus, zen3, zen4, zen5, intel: -march, CPU_FLAGS_X86, required CPU flags
+  gpu/{nvidia,mesa}/        VIDEO_CARDS, driver USE flags/licenses, extra packages and files
+  portage/                  make.conf template, package.use/license/keywords, @desktop-core set
   packages/extras.list      desktop applications (with fallbacks for renamed packages)
-  kernel/am4.config         kernel config fragment (/etc/kernel/config.d)
+  kernel/desktop.config     kernel config fragment (/etc/kernel/config.d)
 rootfs/                     files copied into every image (SDDM Wayland, OpenRC, sysctl, ...)
 rootfs-live/                files only for the live session (removed by the installer)
 iso/grub.cfg.in             live ISO boot menu
 scripts/chroot/             build-system.sh and make-iso.sh, run inside the chroot
-installer/                  the Qt 6 installer (am4_installer package, launcher, tests)
+installer/                  the Qt 6 installer (gentoo_installer package, launcher, tests)
 ```
 
 ## Customising
 
 - **More packages:** add them to `config/packages/extras.list`. Write
   `a | b` to use whichever of the two exists in the tree. Packages that cannot
-  be installed are skipped with a warning. The packages in `@am4-core` are
+  be installed are skipped with a warning. The packages in `@desktop-core` are
   different: if one of them fails, the build fails.
-- **USE flags:** edit `config/portage/package.use/00-am4-desktop` or the `USE=` line in `config/portage/make.conf.in`.
-- **Another CPU generation:** copy `config/cpu/zen3.conf`, for example to
-  `zen4.conf` with `znver4` and your `cpuid2cpuflags` output, and build with `--cpu zen4`.
+- **USE flags:** edit `config/portage/package.use/00-desktop` or the `USE=` line in `config/portage/make.conf.in`.
+- **Another CPU generation:** copy a file in `config/cpu/`, for example to
+  `zen6.conf`. Set `CPU_CFLAGS`, your `cpuid2cpuflags` output and the
+  `/proc/cpuinfo` flags it requires, then build with `--cpu zen6`. The installer
+  picks up `CPU_REQUIRED_FLAGS` automatically.
 
 ## Development
 
 ```sh
-shellcheck build.sh scripts/lib.sh scripts/chroot/*.sh installer/am4-installer
+shellcheck build.sh scripts/lib.sh scripts/chroot/*.sh installer/gentoo-installer
 cd installer && python3 -m pytest -q tests
 ```
 
 CI (`.github/workflows/lint.yml`) runs shellcheck and the installer's unit
 tests. A full ISO build takes far longer than a hosted CI runner allows, so
-build ISOs on a real AM4 machine.
+build ISOs on a real desktop machine.

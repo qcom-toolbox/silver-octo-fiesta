@@ -1,13 +1,14 @@
+import os
 import shlex
 
 import pytest
 
-from am4_installer import backend, system
+from gentoo_installer import backend, system
 
 EDITION = {
     "DISTRO_NAME": "Gentoo Linux", "DISTRO_SHORT": "Gentoo", "DISTRO_ID": "gentoo",
-    "EDITION": "zen3-nvidia", "CPU_DESC": "AMD Zen 3", "CPU_MARCH": "znver3",
-    "CPU_MIN_FAMILY": "25", "GPU_ID": "nvidia", "LIVE_USER": "live",
+    "EDITION": "zen3-nvidia", "CPU_ID": "zen3", "CPU_DESC": "AMD Zen 3",
+    "CPU_REQUIRED_FLAGS": "avx2 sha_ni vaes", "GPU_ID": "nvidia", "LIVE_USER": "live",
 }
 
 
@@ -52,9 +53,9 @@ def target(tmp_path):
     (root / "etc/sddm.conf.d").mkdir()
     (root / "etc/sddm.conf.d/50-live-autologin.conf").write_text("[Autologin]\nUser=live\n")
     (root / "usr/share/applications").mkdir(parents=True)
-    (root / "usr/share/applications/am4-installer.desktop").write_text("x")
+    (root / "usr/share/applications/gentoo-installer.desktop").write_text("x")
     listing = tmp_path / "live-files.list"
-    listing.write_text("/etc/sddm.conf.d/50-live-autologin.conf\n/usr/share/applications/am4-installer.desktop\n")
+    listing.write_text("/etc/sddm.conf.d/50-live-autologin.conf\n/usr/share/applications/gentoo-installer.desktop\n")
     return root, listing
 
 
@@ -91,7 +92,7 @@ def test_erase_install_uefi_btrfs(target):
     assert "VariantList=nodeadkeys" in (root / "home/alex/.config/kxkbrc").read_text()
     assert "User=alex" in (root / "etc/sddm.conf.d/20-autologin.conf").read_text()
     assert not (root / "etc/sddm.conf.d/50-live-autologin.conf").exists()
-    assert not (root / "usr/share/applications/am4-installer.desktop").exists()
+    assert not (root / "usr/share/applications/gentoo-installer.desktop").exists()
     assert (root / "etc/localtime").readlink().as_posix() == "../usr/share/zoneinfo/Europe/Berlin"
     assert "de_DE.UTF-8 UTF-8" in (root / "etc/locale.gen").read_text()
     assert 'GRUB_DISTRIBUTOR="Gentoo"' in (root / "etc/default/grub").read_text()
@@ -178,29 +179,79 @@ def test_validators():
     assert backend.suggest_username("42 Things") == "u42"
 
 
-CPUINFO_2600X = """processor\t: 0
-vendor_id\t: AuthenticAMD
-cpu family\t: 23
-model name\t: AMD Ryzen 5 2600X Six-Core Processor
-processor\t: 1
-vendor_id\t: AuthenticAMD
-cpu family\t: 23
-model name\t: AMD Ryzen 5 2600X Six-Core Processor
-"""
+V3 = "fpu sse sse2 ssse3 sse4_1 sse4_2 avx avx2 fma bmi1 bmi2 movbe f16c aes pclmulqdq"
+FLAGS = {
+    "zenplus": V3 + " sha_ni sse4a",
+    "zen3": V3 + " sha_ni sse4a vaes vpclmulqdq",
+    "zen4": V3 + " sha_ni sse4a vaes vpclmulqdq avx512f avx512bw avx512vl avx512_bf16 avx512_vnni",
+    "zen5": V3 + " sha_ni sse4a vaes vpclmulqdq avx512f avx512bw avx512vl avx512_bf16 avx512_vnni"
+            " avx512_vp2intersect avx_vnni movdiri movdir64b",
+}
 
 
-def test_cpu_compatibility():
-    cpu = system.parse_cpuinfo(CPUINFO_2600X)
+def cpuinfo(vendor, family, model, flags, threads=2):
+    block = f"vendor_id\t: {vendor}\ncpu family\t: {family}\nmodel name\t: {model}\nflags\t\t: {flags}\n"
+    return "".join(f"processor\t: {i}\n{block}\n" for i in range(threads))
+
+
+def load_edition(cpu_id):
+    """Read the real config/cpu/<id>.conf the build uses."""
+    conf = system.read_edition(os.path.join(os.path.dirname(__file__), "../../config/cpu", f"{cpu_id}.conf"))
+    assert conf["CPU_ID"] == cpu_id
+    return conf
+
+
+CPUS = {
+    "2600X": system.parse_cpuinfo(cpuinfo("AuthenticAMD", 23, "AMD Ryzen 5 2600X", FLAGS["zenplus"])),
+    "5950X": system.parse_cpuinfo(cpuinfo("AuthenticAMD", 25, "AMD Ryzen 9 5950X", FLAGS["zen3"])),
+    "7950X": system.parse_cpuinfo(cpuinfo("AuthenticAMD", 25, "AMD Ryzen 9 7950X", FLAGS["zen4"])),
+    "9950X": system.parse_cpuinfo(cpuinfo("AuthenticAMD", 26, "AMD Ryzen 9 9950X", FLAGS["zen5"])),
+    "i5-10400": system.parse_cpuinfo(cpuinfo("GenuineIntel", 6, "Intel Core i5-10400", V3)),
+    "i7-14700K": system.parse_cpuinfo(cpuinfo("GenuineIntel", 6, "Intel Core i7-14700K", V3 + " sha_ni vaes avx_vnni")),
+    "G6400": system.parse_cpuinfo(cpuinfo("GenuineIntel", 6, "Intel Pentium Gold G6400", "fpu sse sse2 sse4_2 aes")),
+}
+
+
+def test_parse_cpuinfo():
+    cpu = CPUS["2600X"]
     assert (cpu.family, cpu.threads, cpu.vendor) == (23, 2, "AuthenticAMD")
-    zen3 = {"CPU_MARCH": "znver3", "CPU_MIN_FAMILY": "25", "CPU_DESC": "Zen 3"}
-    zenplus = {"CPU_MARCH": "znver1", "CPU_MIN_FAMILY": "23", "CPU_DESC": "Zen+"}
-    assert system.cpu_compatibility(zen3, cpu)[0] == "error"
-    assert system.cpu_compatibility(zenplus, cpu) is None
-    zen3_cpu = system.CpuInfo(vendor="AuthenticAMD", model="AMD Ryzen 9 5950X", family=25, threads=32)
-    assert system.cpu_compatibility(zen3, zen3_cpu) is None
-    assert system.cpu_compatibility(zenplus, zen3_cpu)[0] == "warning"
-    intel = system.CpuInfo(vendor="GenuineIntel", model="Intel", family=6)
-    assert system.cpu_compatibility(zenplus, intel)[0] == "error"
+    assert "sse4a" in cpu.flags
+
+
+@pytest.mark.parametrize("name,best", [
+    ("2600X", "zenplus"), ("5950X", "zen3"), ("7950X", "zen4"), ("9950X", "zen5"),
+    ("i5-10400", "intel"), ("i7-14700K", "intel"), ("G6400", None),
+])
+def test_recommended_edition(name, best):
+    assert system.recommended_cpu_edition(CPUS[name]) == best
+
+
+@pytest.mark.parametrize("name", ["2600X", "5950X", "7950X", "9950X", "i5-10400", "i7-14700K"])
+def test_matching_edition_has_no_warning(name):
+    best = system.recommended_cpu_edition(CPUS[name])
+    assert system.cpu_compatibility(load_edition(best), CPUS[name]) is None
+
+
+@pytest.mark.parametrize("edition,cpu", [
+    ("zen3", "2600X"), ("zen4", "5950X"), ("zen5", "7950X"), ("zenplus", "i7-14700K"),
+    ("zen3", "i5-10400"), ("intel", "G6400"),
+])
+def test_too_new_edition_is_an_error(edition, cpu):
+    severity, message = system.cpu_compatibility(load_edition(edition), CPUS[cpu])
+    assert severity == "error" and "Illegal instruction" in message
+
+
+@pytest.mark.parametrize("edition,cpu", [
+    ("zenplus", "9950X"), ("zen3", "7950X"), ("intel", "5950X"), ("intel", "9950X"),
+])
+def test_older_edition_works_with_a_hint(edition, cpu):
+    severity, message = system.cpu_compatibility(load_edition(edition), CPUS[cpu])
+    assert severity == "warning" and "tuned for it" in message
+
+
+def test_unknown_cpu_or_edition_is_not_judged():
+    assert system.cpu_compatibility({}, CPUS["2600X"]) is None
+    assert system.cpu_compatibility(load_edition("zen5"), system.CpuInfo()) is None
 
 
 def test_recommended_jobs():
@@ -239,7 +290,7 @@ def test_xkb_layouts_and_keymaps():
 
 def test_read_edition(tmp_path):
     f = tmp_path / "edition.conf"
-    f.write_text('DISTRO_NAME="Gentoo Linux"\nEDITION="zen3-nvidia"\nCPU_MIN_FAMILY=25\n')
+    f.write_text('DISTRO_NAME="Gentoo Linux"\nEDITION="zen3-nvidia"\nCPU_REQUIRED_FLAGS="avx2 vaes"\n')
     ed = system.read_edition(str(f))
-    assert ed["DISTRO_NAME"] == "Gentoo Linux" and ed["CPU_MIN_FAMILY"] == "25"
+    assert ed["DISTRO_NAME"] == "Gentoo Linux" and ed["CPU_REQUIRED_FLAGS"] == "avx2 vaes"
     assert system.read_edition(str(tmp_path / "nope"))["DISTRO_ID"] == "gentoo"

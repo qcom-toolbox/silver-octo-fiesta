@@ -4,7 +4,7 @@
 # work is skipped or comes from the binary package cache.
 set -euo pipefail
 
-SRC=/mnt/am4-src
+SRC=/mnt/gentoo-src
 # shellcheck source=../lib.sh
 source "${SRC}/scripts/lib.sh"
 # shellcheck source=../../config/distro.conf
@@ -15,8 +15,8 @@ source "${SRC}/config/cpu/${CPU:?}.conf"
 source "${SRC}/config/gpu/${GPU:?}/gpu.conf"
 
 GPU_DIR="${SRC}/config/gpu/${GPU}"
-STATE_DIR=/usr/share/am4
-MARKERS=/var/lib/am4-build
+STATE_DIR=/usr/share/gentoo-desktop
+MARKERS=/var/lib/gentoo-desktop-build
 
 : "${JOBS:=$(nproc)}" "${BINHOST:=0}" "${REBUILD:=1}" "${BUILD_DATE:=$(date +%Y%m%d)}"
 EMERGE_JOBS=2
@@ -114,11 +114,11 @@ setup_portage() {
 	done
 
 	cp "${SRC}/config/portage/make.conf.in" /etc/portage/make.conf
-	render_template /etc/portage/make.conf DISTRO_NAME EDITION CPU_DESC GPU_DESC CPU_MARCH \
+	render_template /etc/portage/make.conf DISTRO_NAME EDITION CPU_DESC GPU_DESC CPU_CFLAGS CPU_RUST \
 		CPU_FLAGS_X86 JOBS EMERGE_JOBS VIDEO_CARDS
 
 	# Kernel config fragment, merged by sys-kernel/gentoo-kernel.
-	install -Dm644 "${SRC}/config/kernel/am4.config" /etc/kernel/config.d/am4.config
+	install -Dm644 "${SRC}/config/kernel/desktop.config" /etc/kernel/config.d/desktop.config
 
 	if ((BINHOST)); then
 		info "Enabling the official Gentoo x86-64-v3 binary package host"
@@ -163,7 +163,7 @@ build_world() {
 	# Recompile the generic stage3 for this CPU once. Re-runs resume quickly
 	# because every finished package is in the binary package cache.
 	if ((REBUILD && !BINHOST)) && [[ ! -f ${MARKERS}/world-rebuilt ]]; then
-		info "Recompiling the whole stage3 with -march=${CPU_MARCH}"
+		info "Recompiling the whole stage3 with ${CPU_CFLAGS}"
 		emerge --emptytree @world
 		touch "${MARKERS}/world-rebuilt"
 	fi
@@ -171,11 +171,16 @@ build_world() {
 	info "Updating @world with the desktop USE flags"
 	emerge --update --deep --newuse @world
 
-	info "Installing the core desktop (@am4-core, @am4-gpu)"
-	emerge --update --deep --newuse --noreplace @am4-core @am4-gpu
+	info "Installing the core desktop (@desktop-core, @desktop-gpu)"
+	emerge --update --deep --newuse --noreplace @desktop-core @desktop-gpu
 
 	install_list "${SRC}/config/packages/extras.list"
 	install_list "${GPU_DIR}/packages.list"
+	if [[ -n ${CPU_PACKAGES} ]]; then
+		info "Installing CPU specific packages: ${CPU_PACKAGES}"
+		# shellcheck disable=SC2086 # a list of atoms
+		emerge --noreplace ${CPU_PACKAGES}
+	fi
 
 	emerge --update --deep --newuse @world
 	emerge --depclean
@@ -190,12 +195,12 @@ install_files() {
 	install_tree "${GPU_DIR}/rootfs"
 
 	# Graphical installer
-	rm -rf /usr/lib/am4-installer
-	mkdir -p /usr/lib/am4-installer
-	cp -R --no-preserve=ownership "${SRC}/installer/am4_installer" /usr/lib/am4-installer/
-	find /usr/lib/am4-installer -name __pycache__ -prune -exec rm -rf {} +
-	install -Dm755 "${SRC}/installer/am4-installer" /usr/bin/am4-installer
-	python3 -m compileall -q /usr/lib/am4-installer
+	rm -rf /usr/lib/gentoo-installer
+	mkdir -p /usr/lib/gentoo-installer
+	cp -R --no-preserve=ownership "${SRC}/installer/gentoo_installer" /usr/lib/gentoo-installer/
+	find /usr/lib/gentoo-installer -name __pycache__ -prune -exec rm -rf {} +
+	install -Dm755 "${SRC}/installer/gentoo-installer" /usr/bin/gentoo-installer
+	python3 -m compileall -q /usr/lib/gentoo-installer
 
 	# neofetch was archived upstream; fall back to fastfetch if it left the tree.
 	if ! command -v neofetch >/dev/null && command -v fastfetch >/dev/null; then
@@ -212,8 +217,9 @@ install_files() {
 		EDITION="${EDITION}"
 		CPU_ID="${CPU_ID}"
 		CPU_DESC="${CPU_DESC}"
-		CPU_MARCH="${CPU_MARCH}"
-		CPU_MIN_FAMILY=${CPU_MIN_FAMILY}
+		CPU_VENDOR="${CPU_VENDOR}"
+		CPU_CFLAGS="${CPU_CFLAGS}"
+		CPU_REQUIRED_FLAGS="${CPU_REQUIRED_FLAGS}"
 		GPU_ID="${GPU_ID}"
 		GPU_DESC="${GPU_DESC}"
 		BUILD_DATE="${BUILD_DATE}"
@@ -259,7 +265,7 @@ setup_live() {
 	passwd -l root >/dev/null
 
 	local home="/home/${LIVE_USER}"
-	install -Dm755 /usr/share/applications/am4-installer.desktop "${home}/Desktop/am4-installer.desktop"
+	install -Dm755 /usr/share/applications/gentoo-installer.desktop "${home}/Desktop/gentoo-installer.desktop"
 	chown -R "${LIVE_USER}:${LIVE_USER}" "${home}"
 }
 

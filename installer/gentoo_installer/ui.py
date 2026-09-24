@@ -10,7 +10,7 @@ import traceback
 from . import backend, system
 from .qt import QtCore, QtGui, QtWidgets, Signal
 
-LOG_FILE = "/var/log/am4-installer.log"
+LOG_FILE = "/var/log/gentoo-installer.log"
 
 Qt = QtCore.Qt
 QMessageBox = QtWidgets.QMessageBox
@@ -102,14 +102,15 @@ class WelcomePage(Page):
             if severity == "error":
                 self.confirm_incompatible = QtWidgets.QCheckBox("I understand, install anyway")
                 self.layout_.addWidget(self.confirm_incompatible)
-        if ed.get("GPU_ID") == "nvidia" and not any(g.vendor == "NVIDIA" for g in gpus):
+        has_nvidia = any(g.vendor == "NVIDIA" for g in gpus)
+        if ed.get("GPU_ID") == "nvidia" and not has_nvidia:
             self.layout_.addWidget(_banner(
                 "This is the NVIDIA edition but no NVIDIA card was found. It works fine with "
-                "AMD graphics too; the AMD edition is a bit smaller.", "info"))
-        if ed.get("GPU_ID") == "amd" and any(g.vendor == "NVIDIA" for g in gpus):
+                "AMD and Intel graphics too; the mesa edition is a bit smaller.", "info"))
+        if ed.get("GPU_ID") == "mesa" and has_nvidia:
             self.layout_.addWidget(_banner(
-                "An NVIDIA graphics card was found, but this is the AMD edition without the "
-                "NVIDIA driver. Use the NVIDIA edition for GeForce RTX cards.", "warning"))
+                "An NVIDIA graphics card was found, but this edition has no NVIDIA driver. "
+                "Use the NVIDIA edition for GeForce RTX cards.", "warning"))
 
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel("<b>Language of the installed system:</b>"))
@@ -484,7 +485,7 @@ class FinishPage(Page):
             self.text.setText(
                 f"{name} has been installed. Restart the computer and remove the USB stick.<br><br>"
                 "Tips for the new system:<ul>"
-                "<li><tt>am4-update</tt> updates everything (packages and Flatpak apps).</li>"
+                "<li><tt>gentoo-update</tt> updates everything (packages and Flatpak apps).</li>"
                 "<li>Discover installs apps like Steam or Discord from Flathub.</li>"
                 "<li><tt>neofetch</tt> and <tt>htop</tt> are ready in Konsole.</li></ul>")
             self.reboot.setVisible(True)
@@ -539,7 +540,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         side = QtWidgets.QVBoxLayout(sidebar)
         side.setContentsMargins(0, 18, 0, 18)
         logo = QtWidgets.QLabel(f"<b style='font-size:15pt'>{edition['DISTRO_NAME']}</b>"
-                                f"<br><span style='font-size:9pt'>AM4 &middot; {edition['EDITION']}</span>")
+                                f"<br><span style='font-size:9pt'>{edition['EDITION']}</span>")
         logo.setTextFormat(Qt.TextFormat.RichText)
         side.addWidget(logo)
         side.addSpacing(18)
@@ -672,9 +673,9 @@ class InstallerWindow(QtWidgets.QMainWindow):
 
 def run_app(dry_run: bool = False, edition_path: str | None = None, qt_args: list[str] | None = None) -> int:
     app = QtWidgets.QApplication(qt_args or sys.argv)
-    app.setApplicationName("am4-installer")
-    app.setDesktopFileName("am4-installer")
+    app.setApplicationName("gentoo-installer")
+    app.setDesktopFileName("gentoo-installer")
     edition = system.read_edition(edition_path or system.EDITION_FILE)
-    window = InstallerWindow(edition, dry_run=dry_run or os.environ.get("AM4_INSTALLER_DRY_RUN") == "1")
+    window = InstallerWindow(edition, dry_run=dry_run or os.environ.get("GENTOO_INSTALLER_DRY_RUN") == "1")
     window.show()
     return app.exec()

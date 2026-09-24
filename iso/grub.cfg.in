@@ -13,7 +13,7 @@ terminal_output gfxterm
 search --no-floppy --set=root --label @ISO_LABEL@
 
 set live="root=live:CDLABEL=@ISO_LABEL@ rd.live.image rd.live.overlay.overlayfs=1"
-set nogpu="modprobe.blacklist=nvidia,nvidia_drm,nvidia_modeset,nvidia_uvm,nouveau,amdgpu rd.driver.blacklist=nvidia,nvidia_drm,nvidia_modeset,nvidia_uvm,nouveau,amdgpu"
+set nogpu="modprobe.blacklist=nvidia,nvidia_drm,nvidia_modeset,nvidia_uvm,nouveau,amdgpu,i915,xe rd.driver.blacklist=nvidia,nvidia_drm,nvidia_modeset,nvidia_uvm,nouveau,amdgpu,i915,xe"
 
 menuentry "@DISTRO_NAME@ Live (@CPU_DESC_SHORT@, @GPU_DESC_SHORT@)" --class gentoo {
 	linux /boot/vmlinuz ${live} quiet
