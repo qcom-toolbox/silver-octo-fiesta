@@ -57,8 +57,8 @@ sys-block/zram-init
 # Automatic Btrfs snapshots (configured by the installer)
 app-backup/snapper
 # ZFS: tools, kernel module and dracut support. The installer offers ZFS as a
-# file system only if this could be installed (zfs-kmod has to support the
-# kernel version; Portage keeps the kernel within the supported range).
+# file system only if this could be installed (its kernel module has to support
+# the kernel version; Portage keeps the kernel within the supported range).
 sys-fs/zfs
 sys-boot/os-prober
 sys-apps/plocate

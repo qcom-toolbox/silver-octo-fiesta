@@ -15,10 +15,10 @@ sys-boot/grub mount
 sys-fs/squashfs-tools zstd lz4 xz
 sys-fs/lvm2 lvm -thin
 
-# ZFS (installer option): kernel module rebuilt with every distribution
-# kernel, dracut module for a ZFS root
-sys-fs/zfs dist-kernel rootfs
-sys-fs/zfs-kmod dist-kernel
+# ZFS (installer option): sys-fs/zfs builds the kernel module itself (since
+# ZFS 2.4) for every distribution kernel ("dist-kernel-cap" keeps the kernel
+# within the versions ZFS supports); dracut module for a ZFS root
+sys-fs/zfs dist-kernel modules rootfs
 
 # Virtual machine host: QEMU with SPICE, USB redirection and 3D (virgl),
 # libvirt with NAT networking, VirtualBox kernel modules for every kernel
@@ -42,7 +42,9 @@ sys-libs/ncurses -gpm
 
 # Printing / discovery
 net-print/cups zeroconf
-net-dns/avahi mdnsresponder-compat
+# -gtk: avahi[gtk] -> gtk+[cups] -> cups[zeroconf] -> avahi is circular, and
+# avahi's GTK browser is not needed on a KDE desktop
+net-dns/avahi mdnsresponder-compat -gtk
 
 # The graphical installer is written in Python + Qt 6
 dev-python/pyside gui widgets

@@ -1,0 +1,2 @@
+# VA-API video decoding on NVIDIA (browsers, mpv); only available as ~amd64
+media-libs/nvidia-vaapi-driver ~amd64

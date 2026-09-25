@@ -104,6 +104,18 @@ sudo ./build.sh --cpu generic --gpu mesa
 sudo ./build.sh --cpu all --gpu all
 ```
 
+**Check first (recommended).** Before committing to a many-hour build, let
+Portage plan the whole thing against the *current* Gentoo tree. It takes
+minutes and compiles nothing except Go:
+
+```sh
+sudo ./build.sh --cpu zen3 --gpu nvidia --step fetch,check
+```
+
+It reports how many packages would be built, or exactly what doesn't
+resolve: a renamed package, a USE flag conflict, or a circular dependency.
+Gentoo changes every day, so run it again before each build.
+
 The ISO and its `.sha256` file end up in `out/`. The build runs in three
 steps, and you can run them separately with `--step`:
 
@@ -272,9 +284,9 @@ The installer has these steps: **Welcome → Location → Disk → User → Summ
     zstd compression and the datasets `rpool/ROOT/gentoo` (`/`),
     `rpool/home`, `rpool/var/log` and `rpool/var/cache`. GRUB boots from a
     small ext4 `/boot` partition, and the initramfs imports the pool. ZFS is
-    only offered if the image could include it: `sys-fs/zfs-kmod` must
-    support the kernel version, and Portage keeps the kernel within that
-    range. OpenZFS is CDDL-licensed. Consider that if you redistribute ISOs
+    only offered if the image could include it: the ZFS kernel module (built
+    by `sys-fs/zfs` itself since ZFS 2.4) must support the kernel version,
+    and Portage keeps the kernel within that range. OpenZFS is CDDL-licensed. Consider that if you redistribute ISOs
     that contain the ZFS kernel module.
   - **Automatic snapshots** (Btrfs and ZFS, on by default):
     - Btrfs uses **Snapper** with the config `root`.
@@ -376,6 +388,30 @@ installer/                  the Qt 6 installer (gentoo_installer package, launch
   `zen6.conf`. Set `CPU_CFLAGS`, your `cpuid2cpuflags` output and the
   `/proc/cpuinfo` flags it requires, then build with `--cpu zen6`. The installer
   picks up `CPU_REQUIRED_FLAGS` automatically.
+
+## What has been tested
+
+All the testing so far was done in a cloud sandbox without a real Gentoo
+compile. Here is what was verified for real:
+
+- **Real stage3, real tree:**
+  - `--step fetch` downloads the current stage3 and verifies its checksum
+    and Gentoo's release signature.
+  - `--step check` resolves the complete plan for `generic-mesa`
+    (620-package stage3 rebuild, then 781 packages with 101 of them also in
+    32-bit) and for `zen3-nvidia` (797 packages, 106 in 32-bit). This found
+    and fixed about a dozen real problems.
+- **Real installs, booted in QEMU:** the installer ran for real (not
+  dry-run) onto virtual disks, using a small stand-in Linux as the system
+  being copied:
+  - Legacy BIOS + ext4: boots, the user logs in, `sudo` works, root is
+    locked, the live user is removed, and GRUB uses `root=UUID=`.
+  - UEFI + Btrfs + LUKS2 + snapshots: the installer ran inside a UEFI VM.
+    The new disk boots with a *fresh* firmware through the fallback loader,
+    asks for the passphrase, and mounts all Btrfs subvolumes. `/boot` and
+    `/efi` are correct, and the German keymap is set.
+- **Not tested yet:** a complete compile of the desktop and a boot of the
+  real ISO. These need a real machine (many hours of compiling).
 
 ## Development
 

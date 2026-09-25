@@ -184,6 +184,8 @@ multilib_use() {
 
 	# The dependency chain is deep (e.g. libpulse -> libsndfile -> flac, ogg,
 	# vorbis, opus, lame, mpg123 ...) and one autounmask run gives up on it.
+	# The desktop sets are included so e.g. nvidia-drivers' 32-bit libraries
+	# (which need 32-bit egl-wayland, egl-gbm, ...) are seen in a dry run too.
 	# So: take the abi_x86_32 changes Portage proposes, add them, and repeat
 	# until the plan resolves. Only abi_x86_32 is ever added.
 	local pass out new count=0
@@ -191,7 +193,8 @@ multilib_use() {
 		if out=$(emerge --pretend --update --deep --newuse --backtrack=100 \
 			--ignore-built-slot-operator-deps=y --autounmask=y --autounmask-use=y \
 			--autounmask-backtrack=y --autounmask-write=n --autounmask-keep-keywords=y \
-			--autounmask-keep-masks=y --autounmask-license=n @world "${pkgs[@]}" 2>&1); then
+			--autounmask-keep-masks=y --autounmask-license=n \
+			@world @desktop-core @desktop-gpu "${pkgs[@]}" 2>&1); then
 			info "32-bit dependencies complete: ${count} added in $((pass - 1)) passes"
 			return 0
 		fi
