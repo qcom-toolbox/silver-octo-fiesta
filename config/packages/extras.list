@@ -74,6 +74,15 @@ app-arch/7zip | app-arch/p7zip
 app-arch/unzip
 app-arch/zip
 
+# Virtual machine guest tools. Installed everywhere; the vm-guest service
+# only starts the ones for the hypervisor it detects at boot.
+app-emulation/qemu-guest-agent
+app-emulation/spice-vdagent
+app-emulation/open-vm-tools
+app-emulation/hyperv-daemons | sys-apps/hyperv-daemons
+app-emulation/virtualbox-guest-additions
+app-emulation/xe-guest-utilities
+
 # Fonts
 media-fonts/noto
 media-fonts/noto-emoji

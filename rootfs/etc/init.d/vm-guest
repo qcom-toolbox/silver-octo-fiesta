@@ -1,0 +1,50 @@
+#!/sbin/openrc-run
+# shellcheck shell=sh disable=SC2034 # description is read by OpenRC
+# Starts the guest tools of the hypervisor this system runs in. The guest
+# services themselves are not in any runlevel, so bare metal starts nothing.
+
+description="Start the guest tools for QEMU/KVM, VMware, Hyper-V, VirtualBox or Xen"
+
+depend() {
+	need localmount
+	after bootmisc
+	before display-manager
+}
+
+guest_services() {
+	case "$1" in
+		qemu) echo "qemu-guest-agent spice-vdagent" ;;
+		vmware) echo "vmware-tools vmtoolsd" ;;
+		hyperv) echo "hv_kvp_daemon hv_vss_daemon hv_fcopy_daemon hv_fcopy_uio_daemon" ;;
+		virtualbox) echo "virtualbox-guest-additions" ;;
+		xen) echo "xe-daemon" ;;
+	esac
+}
+
+start() {
+	hypervisor=$(/usr/local/sbin/gentoo-vm-detect)
+	case "${hypervisor}" in
+		none)
+			einfo "Not running in a virtual machine"
+			return 0
+			;;
+		other)
+			einfo "Running in an unknown hypervisor, no guest tools to start"
+			return 0
+			;;
+	esac
+	einfo "Running in ${hypervisor}, starting its guest tools"
+	for service in $(guest_services "${hypervisor}"); do
+		[ -e "/etc/init.d/${service}" ] || continue
+		rc-service "${service}" start || ewarn "Could not start ${service}"
+	done
+	return 0
+}
+
+stop() {
+	for service in $(guest_services "$(/usr/local/sbin/gentoo-vm-detect)"); do
+		[ -e "/etc/init.d/${service}" ] || continue
+		rc-service "${service}" status >/dev/null 2>&1 && rc-service "${service}" stop
+	done
+	return 0
+}

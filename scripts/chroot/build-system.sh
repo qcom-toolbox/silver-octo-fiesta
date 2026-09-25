@@ -236,7 +236,9 @@ setup_system() {
 	add_service elogind boot
 	add_service zram-init boot
 	local s
-	for s in dbus NetworkManager display-manager bluetooth cupsd avahi-daemon chronyd sysklogd cronie; do
+	# vm-guest starts QEMU/VMware/Hyper-V/VirtualBox/Xen guest tools when
+	# running in that hypervisor; those services are not added themselves.
+	for s in dbus NetworkManager display-manager bluetooth cupsd avahi-daemon chronyd sysklogd cronie vm-guest; do
 		add_service "${s}" default
 	done
 

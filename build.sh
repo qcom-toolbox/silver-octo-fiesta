@@ -24,6 +24,7 @@ Editions:
                                   zen4:    Ryzen 7000 (e.g. Ryzen 7 7800X3D, Ryzen 9 7950X)
                                   zen5:    Ryzen 9000 (e.g. Ryzen 7 9800X3D, Ryzen 9 9950X)
                                   intel:   Intel Core 10th gen and newer, Core Ultra
+                                  generic: any x86-64 CPU and virtual machines
   -g, --gpu <nvidia|mesa|all>   Graphics stack (default: nvidia)
                                   nvidia:  GeForce RTX 3000/4000/5000 (+ AMD/Intel iGPU)
                                   mesa:    AMD Radeon RX 6000-9000, Intel Arc / Iris Xe,
@@ -73,7 +74,7 @@ done
 # "all" builds every combination by re-running this script once per edition.
 if [[ ${CPU} == all || ${GPU} == all ]]; then
 	cpus=("${CPU}") gpus=("${GPU}")
-	[[ ${CPU} == all ]] && cpus=(zenplus zen3 zen4 zen5 intel)
+	[[ ${CPU} == all ]] && cpus=(zenplus zen3 zen4 zen5 intel generic)
 	[[ ${GPU} == all ]] && gpus=(nvidia mesa)
 	# Drop the --cpu/--gpu values from the original arguments; they are replaced below.
 	args=() skip=0

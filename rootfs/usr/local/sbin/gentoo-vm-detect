@@ -1,0 +1,30 @@
+#!/bin/sh
+# Print which hypervisor this system runs in:
+#   qemu, vmware, hyperv, virtualbox, xen, other (unknown hypervisor) or none.
+# The same rules are used by the installer (system.detect_hypervisor).
+SYS=${GENTOO_VM_SYSFS:-/sys}
+CPUINFO=${GENTOO_VM_CPUINFO:-/proc/cpuinfo}
+
+dmi() { cat "${SYS}/class/dmi/id/$1" 2>/dev/null; }
+
+if [ "$(cat "${SYS}/hypervisor/type" 2>/dev/null)" = "xen" ]; then
+	echo xen
+	exit 0
+fi
+
+vendor=$(dmi sys_vendor)
+product=$(dmi product_name)
+case "${vendor}|${product}" in
+	*VMware*) echo vmware ;;
+	"innotek GmbH|"* | *"|VirtualBox"*) echo virtualbox ;;
+	"Microsoft Corporation|Virtual Machine"*) echo hyperv ;;
+	*Xen*) echo xen ;;
+	QEMU\|* | *\|KVM* | *Bochs* | *\|*"(Q35"* | *\|*"(i440FX"*) echo qemu ;;
+	*)
+		if grep -qw hypervisor "${CPUINFO}" 2>/dev/null; then
+			echo other
+		else
+			echo none
+		fi
+		;;
+esac

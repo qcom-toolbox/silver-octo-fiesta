@@ -13,6 +13,7 @@ jobs:
         run: |
           shellcheck build.sh scripts/lib.sh scripts/chroot/*.sh installer/gentoo-installer \
             rootfs/usr/local/bin/gentoo-update rootfs/usr/local/sbin/gentoo-snapshot \
+            rootfs/usr/local/sbin/gentoo-vm-detect rootfs/etc/init.d/vm-guest \
             rootfs/etc/cron.*/gentoo-snapshot rootfs/etc/bash/bashrc.d/*.sh \
             config/gpu/nvidia/rootfs/etc/elogind/system-sleep/nvidia
 

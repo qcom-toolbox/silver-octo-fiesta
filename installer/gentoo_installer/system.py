@@ -104,6 +104,7 @@ CPU_EDITIONS = {
     "zen4": "AMD Ryzen 7000 (zen4)",
     "zen5": "AMD Ryzen 9000 (zen5)",
     "intel": "Intel Core 10th gen+ (intel)",
+    "generic": "generic (any x86-64 CPU)",
 }
 _X86_64_V3 = {"avx2", "fma", "bmi1", "bmi2", "movbe", "f16c"}
 
@@ -111,7 +112,8 @@ _X86_64_V3 = {"avx2", "fma", "bmi1", "bmi2", "movbe", "f16c"}
 def recommended_cpu_edition(cpu: CpuInfo) -> str | None:
     """The best tuned edition for this CPU, or None if no edition runs on it."""
     if cpu.flags and not _X86_64_V3 <= cpu.flags:
-        return None  # no AVX2 (e.g. Pentium/Celeron): too old for every edition
+        # No AVX2: Pentium/Celeron, old CPUs, or a VM with a basic CPU model.
+        return "generic"
     if cpu.vendor == "GenuineIntel":
         return "intel"
     if cpu.vendor == "AuthenticAMD":
@@ -136,14 +138,19 @@ def cpu_compatibility(edition: dict[str, str], cpu: CpuInfo) -> tuple[str, str] 
         return None  # unknown edition or CPU: nothing to compare
     best = recommended_cpu_edition(cpu)
     use_instead = (f" Use the {CPU_EDITIONS.get(best, best)} edition instead."
-                   if best else " No edition supports this processor.")
+                   if best else " Use the generic edition instead.")
     missing = sorted(required - cpu.flags)
     if missing:
+        vm_hint = ""
+        if "hypervisor" in cpu.flags:
+            vm_hint = (" This looks like a virtual machine: set its CPU type to 'host' "
+                       "(host-passthrough) so it sees all of your processor's features, "
+                       "or use the generic edition.")
         return (
             "error",
             f"This image is built for {edition.get('CPU_DESC')} and uses instructions your "
             f"{cpu.model} does not have ({', '.join(missing)}). Programs would crash with "
-            f"'Illegal instruction'.{use_instead}",
+            f"'Illegal instruction'.{use_instead}{vm_hint}",
         )
     if best and best != edition["CPU_ID"]:
         return (
@@ -224,6 +231,41 @@ def zfs_available() -> bool:
         return subprocess.run(["modinfo", "zfs"], capture_output=True, timeout=10, check=False).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
+
+
+HYPERVISOR_NAMES = {
+    "qemu": "QEMU/KVM", "vmware": "VMware", "hyperv": "Microsoft Hyper-V",
+    "virtualbox": "VirtualBox", "xen": "Xen", "other": "unknown hypervisor",
+}
+
+
+def detect_hypervisor(sysfs: str = "/sys", cpu: CpuInfo | None = None) -> str:
+    """qemu, vmware, hyperv, virtualbox, xen, other or none.
+
+    Same rules as /usr/local/sbin/gentoo-vm-detect used by the vm-guest service.
+    """
+    def read(path: str) -> str:
+        try:
+            return Path(sysfs, path).read_text().strip()
+        except OSError:
+            return ""
+
+    if read("hypervisor/type") == "xen":
+        return "xen"
+    vendor, product = read("class/dmi/id/sys_vendor"), read("class/dmi/id/product_name")
+    if "VMware" in vendor or "VMware" in product:
+        return "vmware"
+    if vendor == "innotek GmbH" or product == "VirtualBox":
+        return "virtualbox"
+    if vendor == "Microsoft Corporation" and product.startswith("Virtual Machine"):
+        return "hyperv"
+    if "Xen" in vendor or "Xen" in product:
+        return "xen"
+    if (vendor == "QEMU" or product.startswith("KVM") or "Bochs" in vendor + product
+            or "(Q35" in product or "(i440FX" in product):
+        return "qemu"
+    cpu = cpu or cpu_info()
+    return "other" if "hypervisor" in cpu.flags else "none"
 
 
 def is_uefi() -> bool:

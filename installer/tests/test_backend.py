@@ -324,7 +324,7 @@ def test_validators():
     assert backend.suggest_username("42 Things") == "u42"
 
 
-V3 = "fpu sse sse2 ssse3 sse4_1 sse4_2 avx avx2 fma bmi1 bmi2 movbe f16c aes pclmulqdq"
+V3 = "fpu lm sse sse2 ssse3 sse4_1 sse4_2 avx avx2 fma bmi1 bmi2 movbe f16c aes pclmulqdq"
 FLAGS = {
     "zenplus": V3 + " sha_ni sse4a",
     "zen3": V3 + " sha_ni sse4a vaes vpclmulqdq",
@@ -353,7 +353,10 @@ CPUS = {
     "9950X": system.parse_cpuinfo(cpuinfo("AuthenticAMD", 26, "AMD Ryzen 9 9950X", FLAGS["zen5"])),
     "i5-10400": system.parse_cpuinfo(cpuinfo("GenuineIntel", 6, "Intel Core i5-10400", V3)),
     "i7-14700K": system.parse_cpuinfo(cpuinfo("GenuineIntel", 6, "Intel Core i7-14700K", V3 + " sha_ni vaes avx_vnni")),
-    "G6400": system.parse_cpuinfo(cpuinfo("GenuineIntel", 6, "Intel Pentium Gold G6400", "fpu sse sse2 sse4_2 aes")),
+    "G6400": system.parse_cpuinfo(cpuinfo("GenuineIntel", 6, "Intel Pentium Gold G6400", "fpu lm sse sse2 sse4_2 aes")),
+    # QEMU's default CPU model on a Ryzen host: no AVX2, "hypervisor" flag set
+    "qemu64": system.parse_cpuinfo(cpuinfo("AuthenticAMD", 15, "QEMU Virtual CPU version 2.5+",
+                                           "fpu lm sse sse2 hypervisor")),
 }
 
 
@@ -365,13 +368,13 @@ def test_parse_cpuinfo():
 
 @pytest.mark.parametrize("name,best", [
     ("2600X", "zenplus"), ("5950X", "zen3"), ("7950X", "zen4"), ("9950X", "zen5"),
-    ("i5-10400", "intel"), ("i7-14700K", "intel"), ("G6400", None),
+    ("i5-10400", "intel"), ("i7-14700K", "intel"), ("G6400", "generic"), ("qemu64", "generic"),
 ])
 def test_recommended_edition(name, best):
     assert system.recommended_cpu_edition(CPUS[name]) == best
 
 
-@pytest.mark.parametrize("name", ["2600X", "5950X", "7950X", "9950X", "i5-10400", "i7-14700K"])
+@pytest.mark.parametrize("name", ["2600X", "5950X", "7950X", "9950X", "i5-10400", "i7-14700K", "G6400", "qemu64"])
 def test_matching_edition_has_no_warning(name):
     best = system.recommended_cpu_edition(CPUS[name])
     assert system.cpu_compatibility(load_edition(best), CPUS[name]) is None
@@ -388,10 +391,43 @@ def test_too_new_edition_is_an_error(edition, cpu):
 
 @pytest.mark.parametrize("edition,cpu", [
     ("zenplus", "9950X"), ("zen3", "7950X"), ("intel", "5950X"), ("intel", "9950X"),
+    ("generic", "7950X"), ("generic", "i7-14700K"),
 ])
 def test_older_edition_works_with_a_hint(edition, cpu):
     severity, message = system.cpu_compatibility(load_edition(edition), CPUS[cpu])
     assert severity == "warning" and "tuned for it" in message
+
+
+def test_vm_without_cpu_passthrough_gets_a_hint():
+    severity, message = system.cpu_compatibility(load_edition("zen4"), CPUS["qemu64"])
+    assert severity == "error"
+    assert "host-passthrough" in message and "generic" in message
+    # real hardware gets no VM hint
+    assert "host-passthrough" not in system.cpu_compatibility(load_edition("zen4"), CPUS["2600X"])[1]
+
+
+@pytest.mark.parametrize("vendor,product,xen,flags,expected", [
+    ("QEMU", "Standard PC (Q35 + ICH9, 2009)", False, "", "qemu"),
+    ("Red Hat", "KVM", False, "", "qemu"),
+    ("VMware, Inc.", "VMware20,1", False, "", "vmware"),
+    ("Microsoft Corporation", "Virtual Machine", False, "", "hyperv"),
+    ("innotek GmbH", "VirtualBox", False, "", "virtualbox"),
+    ("Xen", "HVM domU", False, "", "xen"),
+    ("", "", True, "", "xen"),
+    ("ASUSTeK COMPUTER INC.", "System Product Name", False, "", "none"),
+    ("Microsoft Corporation", "Surface Laptop 5", False, "", "none"),
+    ("Micro-Star International Co., Ltd.", "MS-7C56", False, "hypervisor", "other"),
+])
+def test_detect_hypervisor(tmp_path, vendor, product, xen, flags, expected):
+    dmi = tmp_path / "class/dmi/id"
+    dmi.mkdir(parents=True)
+    (dmi / "sys_vendor").write_text(vendor + "\n")
+    (dmi / "product_name").write_text(product + "\n")
+    if xen:
+        (tmp_path / "hypervisor").mkdir()
+        (tmp_path / "hypervisor/type").write_text("xen\n")
+    cpu = system.CpuInfo(flags=frozenset(flags.split()))
+    assert system.detect_hypervisor(str(tmp_path), cpu=cpu) == expected
 
 
 def test_unknown_cpu_or_edition_is_not_judged():

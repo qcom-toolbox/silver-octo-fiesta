@@ -11,7 +11,8 @@ A graphical installer puts it on your disk in a few clicks.
 | **Base** | Gentoo `default/linux/amd64/23.0/desktop/plasma` profile, OpenRC, stage3 `desktop-openrc` |
 | **Desktop** | KDE Plasma 6 on Wayland, SDDM with a Wayland greeter (no Xorg needed) |
 | **Kernel** | `sys-kernel/gentoo-kernel` plus a desktop config fragment (amd-pstate/intel_pstate, 1000 Hz, full preemption, i915 + xe for Intel graphics) |
-| **CPUs** | AMD Ryzen 1000–9000, Intel Core 10th gen (2020) and newer, Core Ultra |
+| **CPUs** | AMD Ryzen 1000–9000, Intel Core 10th gen (2020) and newer, Core Ultra, plus a generic edition for any x86-64 CPU |
+| **Virtual machines** | Runs as a guest in QEMU/KVM, VMware, Hyper-V, VirtualBox and Xen; the matching guest tools start automatically |
 | **Graphics** | NVIDIA RTX 3000/4000/5000 (open kernel modules), or AMD Radeon RX 6000–9000 / Intel Arc / integrated graphics (mesa) |
 | **Tools** | sudo, neofetch, fastfetch, hyfetch, screenfetch, htop, btop, atop, KDE Partition Manager, Konsole, Dolphin, Kate… |
 | **Installer** | Graphical Qt 6 wizard: automatic or manual (dual-boot) partitioning, Btrfs, ext4 or ZFS, automatic snapshots (Snapper / ZFS), optional encryption (LUKS2 / native ZFS), UEFI or BIOS |
@@ -32,11 +33,12 @@ compiled for its generation. A newer generation's code uses instructions
 | AMD Ryzen 7000, AM5 (e.g. 7600X, **7800X3D**, **7950X**) | `zen4` | `-march=znver4` |
 | AMD Ryzen 9000, AM5 (e.g. 9700X, **9800X3D**, **9950X**) | `zen5` | `-march=znver5` |
 | Intel Core 10th–14th gen, Core Ultra 100/200 (2020 and newer) | `intel` | `-march=x86-64-v3 -mtune=intel` |
+| Anything else: virtual machines with any CPU model, Pentium/Celeron, older CPUs | `generic` | `-march=x86-64 -mtune=generic` |
 
 Intel CPUs share one edition. Their generations differ in instruction sets
 (12th gen and newer, for example, have no AVX-512), so the edition targets
 the AVX2 level all 2020+ Core CPUs have. It also includes the Intel microcode
-package. Pentium and Celeron models without AVX2 are not supported.
+package. Pentium and Celeron models without AVX2 need the `generic` edition.
 
 | Your graphics | Graphics edition |
 |---|---|
@@ -69,6 +71,7 @@ exists, it tells you that too.
   - `zen5`: build on a Ryzen 9000.
   - `zenplus`: builds on any AMD Ryzen.
   - `intel`: builds on any 2020+ Intel Core or on any Ryzen.
+  - `generic`: builds on any x86-64 machine.
 - About 60 GB of free disk space per edition, plus about 20 GB for the shared caches.
 - 16 GB of RAM or more is recommended.
 - Host tools: `bash curl tar xz sha256sum chroot mount`. `gpg` is recommended
@@ -94,7 +97,10 @@ sudo ./build.sh --cpu zen5 --gpu mesa
 # Intel Core (2020+) with Intel Arc or integrated graphics
 sudo ./build.sh --cpu intel --gpu mesa
 
-# Every combination (10 ISOs)
+# A generic ISO for virtual machines and any other x86-64 PC
+sudo ./build.sh --cpu generic --gpu mesa
+
+# Every combination (12 ISOs)
 sudo ./build.sh --cpu all --gpu all
 ```
 
@@ -131,6 +137,47 @@ boots in UEFI and in legacy BIOS/CSM mode.
 
 **Disable Secure Boot.** The distribution kernel and the NVIDIA modules are
 not signed with Microsoft's keys.
+
+## Virtual machines
+
+Every ISO also runs as a virtual machine guest. The kernel has the drivers
+for QEMU/KVM (virtio, virtio-gpu with 3D, QXL), VMware (vmwgfx, PVSCSI,
+VMXNET3), Hyper-V (synthetic disk, network, video and input), VirtualBox
+(VMSVGA, shared folders) and Xen (HVM/PVH front-end drivers). Mesa includes
+the virgl and VMware SVGA 3D drivers.
+
+The guest tools are all installed. At boot, the `vm-guest` service runs
+`gentoo-vm-detect` and starts only the tools that match the hypervisor. On
+real hardware it starts nothing.
+
+| Hypervisor | Guest tools started |
+|---|---|
+| QEMU/KVM, Proxmox, virt-manager | `qemu-guest-agent`, `spice-vdagent` |
+| VMware Workstation / ESXi | `open-vm-tools` |
+| Microsoft Hyper-V | Hyper-V daemons (KVP, VSS, file copy) |
+| VirtualBox | VirtualBox Guest Additions (clipboard, shared folders) |
+| Xen / XCP-ng | `xe-guest-utilities` |
+
+**Pick the right CPU edition for a VM.** The tuned editions need the VM to
+pass your CPU's features through:
+
+| Hypervisor | Setting to pass CPU features through |
+|---|---|
+| QEMU/virt-manager | CPU model `host-passthrough` (`-cpu host`) |
+| Proxmox | CPU type `host` |
+| Hyper-V, VMware, VirtualBox | Usually pass most features through by default |
+
+With QEMU's default CPU model (`qemu64`), or when you are unsure, use the
+`generic` edition. The installer shows which hypervisor it detected. If the
+VM's CPU lacks features the edition needs, the installer tells you to switch
+the CPU type to host or use `generic`.
+
+Other VM tips:
+
+- **Hyper-V:** use a Generation 2 VM and turn off Secure Boot.
+- **VirtualBox:** enable EFI or keep BIOS; both work. Pick the *VMSVGA*
+  graphics controller for 3D.
+- **QEMU:** for 3D, use `virtio-vga-gl` with `-display gtk,gl=on` or SPICE with OpenGL.
 
 ## Using the live system
 
@@ -237,7 +284,7 @@ cd installer && python3 -m gentoo_installer --dry-run
 build.sh                    host-side driver: fetch → build → iso
 config/
   distro.conf               name (Gentoo Linux), profile, stage3 flavour
-  cpu/*.conf                zenplus, zen3, zen4, zen5, intel: -march, CPU_FLAGS_X86, required CPU flags
+  cpu/*.conf                zenplus, zen3, zen4, zen5, intel, generic: -march, CPU_FLAGS_X86, required CPU flags
   gpu/{nvidia,mesa}/        VIDEO_CARDS, driver USE flags/licenses, extra packages and files
   portage/                  make.conf template, package.use/license/keywords, @desktop-core set
   packages/extras.list      desktop applications (with fallbacks for renamed packages)

@@ -90,6 +90,10 @@ class WelcomePage(Page):
         form.addRow("<b>Your graphics:</b>", QtWidgets.QLabel(gpu_text))
         form.addRow("<b>Memory:</b>", QtWidgets.QLabel(system.human_size(mem) if mem else "unknown"))
         form.addRow("<b>Boot mode:</b>", QtWidgets.QLabel("UEFI" if wizard.cfg.uefi else "Legacy BIOS"))
+        hypervisor = system.detect_hypervisor(cpu=cpu)
+        if hypervisor != "none":
+            form.addRow("<b>Virtual machine:</b>", QtWidgets.QLabel(
+                f"{system.HYPERVISOR_NAMES.get(hypervisor, hypervisor)} (guest tools start automatically)"))
         box = QtWidgets.QGroupBox("Your computer")
         box.setLayout(form)
         self.layout_.addWidget(box)
