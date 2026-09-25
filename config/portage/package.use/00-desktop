@@ -20,6 +20,14 @@ sys-fs/lvm2 lvm -thin
 sys-fs/zfs dist-kernel rootfs
 sys-fs/zfs-kmod dist-kernel
 
+# Virtual machine host: QEMU with SPICE, USB redirection and 3D (virgl),
+# libvirt with NAT networking, VirtualBox kernel modules for every kernel
+app-emulation/qemu spice usbredir virgl opengl gtk pulseaudio pipewire
+app-emulation/libvirt qemu virt-network libvirtd policykit
+app-emulation/virt-manager gui
+app-emulation/virtualbox-modules dist-kernel
+net-dns/dnsmasq script
+
 # Printing / discovery
 net-print/cups zeroconf
 net-dns/avahi mdnsresponder-compat

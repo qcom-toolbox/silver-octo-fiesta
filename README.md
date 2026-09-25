@@ -12,7 +12,7 @@ A graphical installer puts it on your disk in a few clicks.
 | **Desktop** | KDE Plasma 6 on Wayland, SDDM with a Wayland greeter (no Xorg needed) |
 | **Kernel** | `sys-kernel/gentoo-kernel` plus a desktop config fragment (amd-pstate/intel_pstate, 1000 Hz, full preemption, i915 + xe for Intel graphics) |
 | **CPUs** | AMD Ryzen 1000–9000, Intel Core 10th gen (2020) and newer, Core Ultra, plus a generic edition for any x86-64 CPU |
-| **Virtual machines** | Runs as a guest in QEMU/KVM, VMware, Hyper-V, VirtualBox and Xen; the matching guest tools start automatically |
+| **Virtual machines** | Runs as a guest in QEMU/KVM, VMware, Hyper-V, VirtualBox and Xen (guest tools start automatically), and hosts VMs with QEMU/KVM + virt-manager and VirtualBox |
 | **Graphics** | NVIDIA RTX 3000/4000/5000 (open kernel modules), or AMD Radeon RX 6000–9000 / Intel Arc / integrated graphics (mesa) |
 | **Tools** | sudo, neofetch, fastfetch, hyfetch, screenfetch, htop, btop, atop, KDE Partition Manager, Konsole, Dolphin, Kate… |
 | **Installer** | Graphical Qt 6 wizard: automatic or manual (dual-boot) partitioning, Btrfs, ext4 or ZFS, automatic snapshots (Snapper / ZFS), optional encryption (LUKS2 / native ZFS), UEFI or BIOS |
@@ -121,10 +121,40 @@ Compiling everything from source takes many hours: roughly 5–10 h on a 5950X,
   specifically for your CPU.
 - `--no-rebuild` does not recompile the stage3's existing packages. Only
   newly installed packages get `-march` tuning.
+- `--nice` runs the whole build at the lowest CPU and disk priority, so the
+  computer stays usable while it compiles.
+- `--no-vm-host` leaves out QEMU/virt-manager and VirtualBox, which saves
+  roughly an hour of compiling.
 - Every compiled package is cached in `work/cache/binpkgs/<edition>`. If you
   re-run a build that failed or was interrupted, it continues where it
   stopped instead of starting over.
 - `--clean` deletes an edition's root filesystem and keeps the caches.
+
+### Pausing and stopping a build
+
+A Gentoo build takes hours. You can pause it, stop it and continue it later.
+Run these from a second terminal with the same `--cpu`/`--gpu` as the build:
+
+```sh
+sudo ./build.sh --cpu zen3 --gpu nvidia --status     # running or paused, current package
+sudo ./build.sh --cpu zen3 --gpu nvidia --pause      # freeze it right now, even mid-compile
+sudo ./build.sh --cpu zen3 --gpu nvidia --continue   # carry on exactly where it was
+sudo ./build.sh --cpu zen3 --gpu nvidia --stop       # end it cleanly (or press Ctrl+C)
+sudo ./build.sh --cpu zen3 --gpu nvidia              # after --stop/Ctrl+C/reboot: continues
+```
+
+- **Pause** freezes every process of the build. It uses Linux's cgroup
+  freezer, so compilers, Portage and the scripts don't notice. A paused build
+  uses no CPU but keeps its memory. Don't reboot while paused, or the package
+  being compiled starts again from zero.
+- **Stop** (or Ctrl+C) ends the build and unmounts everything. Running the
+  same build command later continues from where it was: finished packages
+  come from the binary package cache, and only the interrupted package is
+  compiled again. This also works after a reboot or a crash.
+- `--cpu all` works with these options too; they then act on every edition.
+- Pausing needs cgroup v2 (standard on current systemd and OpenRC
+  distributions). Without it, `--pause` says so, and stopping and re-running
+  still works.
 
 ### Write the ISO to a USB stick
 
@@ -157,6 +187,27 @@ real hardware it starts nothing.
 | Microsoft Hyper-V | Hyper-V daemons (KVP, VSS, file copy) |
 | VirtualBox | VirtualBox Guest Additions (clipboard, shared folders) |
 | Xen / XCP-ng | `xe-guest-utilities` |
+
+### Running virtual machines on Gentoo Linux
+
+The desktop also hosts virtual machines (unless built with `--no-vm-host`):
+
+- **QEMU/KVM with virt-manager:** libvirt runs as a service. Its `default`
+  NAT network starts automatically, so new VMs have internet access. UEFI
+  firmware (OVMF) and a software TPM (`swtpm`, for Windows 11) are installed,
+  and 3D guests are supported via virgl.
+- **VirtualBox:** installed with its kernel modules, which are rebuilt
+  automatically with every kernel update.
+- Your user is added to the `kvm`, `libvirt` and `vboxusers` groups, so both
+  work without the root password.
+- KVM and VirtualBox can be installed side by side. KVM only claims the CPU's
+  virtualisation support while a KVM VM runs (`kvm enable_virt_at_load=0`).
+  Run VMs in only one of them at a time.
+
+Like ZFS, VirtualBox's kernel modules must support the kernel version. If they
+can't be built, the build skips VirtualBox with a warning.
+
+### Picking a CPU edition for a guest VM
 
 **Pick the right CPU edition for a VM.** The tuned editions need the VM to
 pass your CPU's features through:
@@ -288,6 +339,7 @@ config/
   gpu/{nvidia,mesa}/        VIDEO_CARDS, driver USE flags/licenses, extra packages and files
   portage/                  make.conf template, package.use/license/keywords, @desktop-core set
   packages/extras.list      desktop applications (with fallbacks for renamed packages)
+  packages/vm-host.list     QEMU/libvirt/virt-manager and VirtualBox (--no-vm-host skips it)
   kernel/desktop.config     kernel config fragment (/etc/kernel/config.d)
 rootfs/                     files copied into every image (SDDM Wayland, OpenRC, sysctl, ...)
 rootfs-live/                files only for the live session (removed by the installer)

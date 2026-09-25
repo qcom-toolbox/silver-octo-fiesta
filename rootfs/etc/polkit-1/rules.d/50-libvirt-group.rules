@@ -1,0 +1,7 @@
+// Members of the "libvirt" group manage system VMs (virt-manager,
+// qemu:///system) without typing the administrator password.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.libvirt.unix.manage" && subject.isInGroup("libvirt")) {
+        return polkit.Result.YES;
+    }
+});

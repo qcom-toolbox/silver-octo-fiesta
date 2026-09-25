@@ -19,6 +19,7 @@ STATE_DIR=/usr/share/gentoo-desktop
 MARKERS=/var/lib/gentoo-desktop-build
 
 : "${JOBS:=$(nproc)}" "${BINHOST:=0}" "${REBUILD:=1}" "${BUILD_DATE:=$(date +%Y%m%d)}"
+: "${VM_HOST:=1}"
 EMERGE_JOBS=2
 ((JOBS >= 12)) && EMERGE_JOBS=3
 ((JOBS >= 24)) && EMERGE_JOBS=4
@@ -176,6 +177,9 @@ build_world() {
 
 	install_list "${SRC}/config/packages/extras.list"
 	install_list "${GPU_DIR}/packages.list"
+	if ((VM_HOST)); then
+		install_list "${SRC}/config/packages/vm-host.list"
+	fi
 	if [[ -n ${CPU_PACKAGES} ]]; then
 		info "Installing CPU specific packages: ${CPU_PACKAGES}"
 		# shellcheck disable=SC2086 # a list of atoms
@@ -241,6 +245,16 @@ setup_system() {
 	for s in dbus NetworkManager display-manager bluetooth cupsd avahi-daemon chronyd sysklogd cronie vm-guest; do
 		add_service "${s}" default
 	done
+	if ((VM_HOST)) && [[ -e /etc/init.d/libvirtd ]]; then
+		add_service libvirtd default
+		# Start libvirt's NAT network "default" with the daemon, so new VMs
+		# in virt-manager have internet access right away.
+		local net=/etc/libvirt/qemu/networks
+		if [[ -f ${net}/default.xml ]]; then
+			mkdir -p "${net}/autostart"
+			ln -sf ../default.xml "${net}/autostart/default.xml"
+		fi
+	fi
 
 	echo "${DISTRO_ID}" >/etc/hostname
 	echo "hostname=\"${DISTRO_ID}\"" >/etc/conf.d/hostname
@@ -261,7 +275,7 @@ setup_live() {
 	echo "${STATE_DIR}/live-files.list" >>"${STATE_DIR}/live-files.list"
 
 	local g groups=()
-	for g in users wheel audio video input render plugdev usb lp pipewire; do
+	for g in users wheel audio video input render plugdev usb lp pipewire kvm libvirt vboxusers; do
 		getent group "${g}" >/dev/null && groups+=("${g}")
 	done
 	if ! id "${LIVE_USER}" >/dev/null 2>&1; then

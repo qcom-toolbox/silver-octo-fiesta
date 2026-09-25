@@ -36,7 +36,11 @@ RESERVED_USERNAMES = {
     "news", "uucp", "operator", "portage", "nobody", "sddm", "polkitd", "messagebus",
     "man", "sshd", "games", "ftp", "pipewire", "avahi", "cron",
 }
-USER_GROUPS = ("users", "wheel", "audio", "video", "input", "render", "plugdev", "usb", "lp", "pipewire")
+USER_GROUPS = (
+    "users", "wheel", "audio", "video", "input", "render", "plugdev", "usb", "lp", "pipewire",
+    # virtual machines: QEMU/KVM, virt-manager (libvirt), VirtualBox
+    "kvm", "libvirt", "vboxusers",
+)
 BIOS_BOOT_GUID = "21686148-6449-6E6F-744E-656564454649"
 BTRFS_OPTS = "compress=zstd:1,noatime"
 # Btrfs subvolumes and where they are mounted. Logs and caches live outside

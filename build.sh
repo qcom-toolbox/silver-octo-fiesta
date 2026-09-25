@@ -40,14 +40,27 @@ Options:
       --work <dir>      Work directory (default: ./work)
       --out <dir>       Output directory for ISOs (default: ./out)
       --no-gpg          Skip the GPG signature check of the stage3 tarball
+      --no-vm-host      Leave out QEMU/virt-manager and VirtualBox (shorter build)
+      --nice            Build at the lowest CPU and disk priority so the computer
+                        stays usable while it runs
       --force           Build even if this machine cannot run the edition's code
       --clean           Delete the edition's root filesystem (caches are kept) and exit
   -h, --help            Show this help
+
+Controlling a running build (from another terminal, same --cpu/--gpu):
+      --pause           Freeze the build right where it is (even mid-compile)
+      --continue        Unfreeze a paused build
+      --stop            Stop the build. Run the same build command again later
+                        to continue; every finished package is kept.
+      --status          Show whether the build runs, is paused, and what it is doing
+
+Ctrl+C also stops a build safely; running the same command again continues it.
 EOF
 }
 
 CPU="" GPU="nvidia" JOBS=$(nproc) WORK="${TOP}/work" OUT="${TOP}/out"
-STEPS="fetch,build,iso" BINHOST=0 REBUILD=1 FORCE=0 CLEAN=0 NO_GPG=0
+STEPS="fetch,build,iso" BINHOST=0 REBUILD=1 FORCE=0 CLEAN=0 NO_GPG=0 VM_HOST=1 NICE=0
+CONTROL=""
 ORIG_ARGS=("$@")
 
 while [[ $# -gt 0 ]]; do
@@ -63,6 +76,9 @@ while [[ $# -gt 0 ]]; do
 		--no-gpg) NO_GPG=1 ;;
 		--force) FORCE=1 ;;
 		--clean) CLEAN=1 ;;
+		--no-vm-host) VM_HOST=0 ;;
+		--nice) NICE=1 ;;
+		--pause | --continue | --resume | --stop | --status) CONTROL=${1#--} ;;
 		-h | --help) usage; exit 0 ;;
 		*) usage >&2; die "Unknown option: $1" ;;
 	esac
@@ -85,7 +101,11 @@ if [[ ${CPU} == all || ${GPU} == all ]]; then
 	done
 	for c in "${cpus[@]}"; do
 		for g in "${gpus[@]}"; do
-			"$0" "${args[@]}" --cpu "${c}" --gpu "${g}"
+			if [[ -n ${CONTROL} ]]; then
+				"$0" "${args[@]}" --cpu "${c}" --gpu "${g}" || true
+			else
+				"$0" "${args[@]}" --cpu "${c}" --gpu "${g}"
+			fi
 		done
 	done
 	exit 0
@@ -116,6 +136,131 @@ ISO_LABEL=${ISO_LABEL:0:32}
 
 # Mount points inside the chroot, in mount order (unmounted in reverse).
 MOUNTS=()
+
+# State of a running build, used by --pause/--continue/--stop/--status.
+PID_FILE="${EDITION_DIR}/build.pid"
+LOCK_FILE="${EDITION_DIR}/build.lock"
+STOP_FILE="${EDITION_DIR}/build.stop"
+STEP_FILE="${EDITION_DIR}/build.step"
+# The build runs in its own cgroup (v2): pausing freezes the whole cgroup, which
+# neither the build's own scripts nor sudo/the terminal notice (unlike SIGSTOP).
+# cgroup v2 is at /sys/fs/cgroup ("unified" systems) or /sys/fs/cgroup/unified
+# ("hybrid" systems, e.g. older Ubuntu/Debian).
+CGROUP_ROOT=/sys/fs/cgroup
+[[ ! -f ${CGROUP_ROOT}/cgroup.controllers && -f ${CGROUP_ROOT}/unified/cgroup.controllers ]] &&
+	CGROUP_ROOT=/sys/fs/cgroup/unified
+CGROUP="${CGROUP_ROOT}/gentoo-build-${EDITION}"
+
+# --------------------------------------------------------------------------
+# Pause / continue / stop / status of a running build
+# --------------------------------------------------------------------------
+running_pid() { # prints the pid of this edition's running build.sh
+	[[ -f ${PID_FILE} ]] || return 1
+	local pid
+	pid=$(<"${PID_FILE}")
+	[[ ${pid} =~ ^[0-9]+$ && -d /proc/${pid} ]] || return 1
+	grep -qa "build.sh" "/proc/${pid}/cmdline" || return 1
+	echo "${pid}"
+}
+
+cgroup_join() { # move this build into its own cgroup; children follow
+	if [[ ! -f ${CGROUP_ROOT}/cgroup.controllers ]]; then
+		warn "cgroup v2 is not available: --pause will not work (--stop and re-running still do)."
+		return 0
+	fi
+	if mkdir -p "${CGROUP}" 2>/dev/null && echo $$ >"${CGROUP}/cgroup.procs" 2>/dev/null; then
+		IN_CGROUP=1
+	else
+		warn "Could not create ${CGROUP}: --pause will not work (--stop and re-running still do)."
+	fi
+}
+
+cgroup_leave() {
+	((${IN_CGROUP:-0})) || return 0
+	echo $$ >"${CGROUP_ROOT}/cgroup.procs" 2>/dev/null || true
+	rmdir "${CGROUP}" 2>/dev/null || true
+}
+
+is_frozen() {
+	[[ -f ${CGROUP}/cgroup.events ]] && grep -qx "frozen 1" "${CGROUP}/cgroup.events"
+}
+
+set_frozen() { # 1 = pause, 0 = continue
+	[[ -w ${CGROUP}/cgroup.freeze ]] ||
+		die "This build cannot be paused (no cgroup v2 freezer). Use --stop and run the build again later."
+	echo "$1" >"${CGROUP}/cgroup.freeze"
+	local i
+	for ((i = 0; i < 50; i++)); do # wait until the kernel reports the new state
+		if (($1)); then is_frozen && return 0; else is_frozen || return 0; fi
+		sleep 0.1
+	done
+}
+
+current_activity() {
+	local step="" line=""
+	[[ -f ${STEP_FILE} ]] && step=$(<"${STEP_FILE}")
+	if [[ -f ${ROOT}/var/log/emerge.log ]]; then
+		line=$(grep -E '>>> emerge \([0-9]+ of [0-9]+\)' "${ROOT}/var/log/emerge.log" | tail -n1 |
+			sed -E 's/.*>>> emerge (\([0-9]+ of [0-9]+\)) ([^ ]+).*/\2 \1/')
+	fi
+	echo "step: ${step:-unknown}${line:+, last package started: ${line}}"
+}
+
+control_build() {
+	[[ ${EUID} -eq 0 ]] || die "Run as root (the build runs as root)."
+	local pid
+	if ! pid=$(running_pid); then
+		info "No build of ${EDITION} is running."
+		[[ ${CONTROL} == status ]] && return 0
+		return 1
+	fi
+	case ${CONTROL} in
+		status)
+			if is_frozen; then
+				info "The ${EDITION} build (pid ${pid}) is PAUSED. Continue it with --continue."
+			else
+				info "The ${EDITION} build (pid ${pid}) is running."
+			fi
+			info "  $(current_activity)"
+			;;
+		pause)
+			set_frozen 1
+			info "Paused the ${EDITION} build (pid ${pid}), right where it was. It uses no CPU"
+			info "now but keeps its memory; don't reboot or it has to redo the current package."
+			info "Continue with: sudo $0 --cpu ${CPU} --gpu ${GPU} --continue"
+			;;
+		continue | resume)
+			set_frozen 0
+			info "The ${EDITION} build continues."
+			;;
+		stop)
+			touch "${STOP_FILE}"
+			[[ -w ${CGROUP}/cgroup.freeze ]] && set_frozen 0
+			# Stop everything the build started; build.sh itself then unmounts
+			# the chroot and exits.
+			local p
+			local -a pids=()
+			if [[ -r ${CGROUP}/cgroup.procs ]]; then
+				mapfile -t pids <"${CGROUP}/cgroup.procs"
+			else
+				mapfile -t pids < <(pgrep -P "${pid}")
+			fi
+			for p in "${pids[@]}"; do
+				[[ ${p} == "${pid}" ]] || kill -TERM "${p}" 2>/dev/null || true
+			done
+			local waited=0
+			while kill -0 "${pid}" 2>/dev/null && ((waited < 60)); do
+				sleep 1
+				waited=$((waited + 1))
+			done
+			if kill -0 "${pid}" 2>/dev/null; then
+				warn "The build did not stop within a minute, killing it."
+				kill -KILL "${pid}" "${pids[@]}" 2>/dev/null || true
+			fi
+			info "Stopped the ${EDITION} build. To continue later, run the same build command again."
+			;;
+	esac
+}
 
 # --------------------------------------------------------------------------
 # Host checks
@@ -158,6 +303,7 @@ bind_mount() { # <source> <target inside ROOT> [ro]
 mount_chroot() {
 	((${#MOUNTS[@]} == 0)) || return 0
 	info "Mounting pseudo filesystems and caches into ${ROOT}"
+	umount_stale
 	mount --types proc /proc "${ROOT}/proc"
 	MOUNTS+=("${ROOT}/proc")
 	local fs
@@ -178,6 +324,14 @@ mount_chroot() {
 	bind_mount "${OUT}" /mnt/gentoo-out
 }
 
+# Unmount whatever an earlier, killed build left mounted below the rootfs.
+umount_stale() {
+	local mp
+	findmnt -rn -o TARGET | grep -F "${ROOT}/" | sort -r | while read -r mp; do
+		umount -R "${mp}" 2>/dev/null || umount -R -l "${mp}" 2>/dev/null || true
+	done
+}
+
 umount_chroot() {
 	local i mp
 	for ((i = ${#MOUNTS[@]} - 1; i >= 0; i--)); do
@@ -188,14 +342,33 @@ umount_chroot() {
 	done
 	MOUNTS=()
 }
-trap umount_chroot EXIT
+on_exit() {
+	local status=$?
+	umount_chroot
+	if [[ -n ${OWN_PID_FILE:-} ]]; then
+		cgroup_leave
+		rm -f "${PID_FILE}" "${STEP_FILE}"
+		if [[ -f ${STOP_FILE} ]] || ((status == 130 || status == 143)); then
+			rm -f "${STOP_FILE}"
+			warn "Build stopped. Run the same command again to continue where it left off:"
+			warn "  sudo $0 ${ORIG_ARGS[*]}"
+			warn "Everything already compiled is kept (work/cache/binpkgs)."
+		fi
+	fi
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 run_chroot() {
-	chroot "${ROOT}" /usr/bin/env -i \
+	local -a prio=()
+	# --nice: lowest CPU and I/O priority for everything in the build.
+	((NICE)) && prio=(nice -n 19 ionice -c 3)
+	"${prio[@]}" chroot "${ROOT}" /usr/bin/env -i \
 		HOME=/root TERM="${TERM:-xterm}" LANG=C.UTF-8 \
 		PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 		CPU="${CPU}" GPU="${GPU}" EDITION="${EDITION}" JOBS="${JOBS}" \
-		BINHOST="${BINHOST}" REBUILD="${REBUILD}" BUILD_DATE="${BUILD_DATE}" \
+		BINHOST="${BINHOST}" REBUILD="${REBUILD}" BUILD_DATE="${BUILD_DATE}" VM_HOST="${VM_HOST}" \
 		ISO_NAME="${ISO_NAME}" ISO_LABEL="${ISO_LABEL}" \
 		/bin/bash "$@"
 }
@@ -285,8 +458,13 @@ step_iso() {
 }
 
 # --------------------------------------------------------------------------
+if [[ -n ${CONTROL} ]]; then
+	control_build
+	exit
+fi
+
 check_host
-mkdir -p "${WORK}" "${OUT}" "${DISTFILES}" "${BINPKGS}"
+mkdir -p "${WORK}" "${OUT}" "${DISTFILES}" "${BINPKGS}" "${EDITION_DIR}"
 info "${DISTRO_NAME} - edition ${EDITION}"
 info "  CPU: ${CPU_DESC}"
 info "  GPU: ${GPU_DESC}"
@@ -301,8 +479,19 @@ if ((CLEAN)); then
 	exit 0
 fi
 
+# One build per edition at a time; remember our pid for --pause/--stop/--status.
+if command -v flock >/dev/null; then
+	exec 9>"${LOCK_FILE}"
+	flock -n 9 || die "A build of ${EDITION} is already running (see: sudo $0 --cpu ${CPU} --gpu ${GPU} --status)"
+fi
+echo $$ >"${PID_FILE}"
+OWN_PID_FILE=1
+rm -f "${STOP_FILE}"
+cgroup_join
+
 IFS=, read -r -a steps <<<"${STEPS}"
 for step in "${steps[@]}"; do
+	echo "${step}" >"${STEP_FILE}"
 	case ${step} in
 		fetch | build | iso) "step_${step}" ;;
 		all) step_fetch; step_build; step_iso ;;

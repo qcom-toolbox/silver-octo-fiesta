@@ -18,6 +18,9 @@ MAKEOPTS="-j@JOBS@ -l@JOBS@"
 
 VIDEO_CARDS="@VIDEO_CARDS@"
 INPUT_DEVICES="libinput"
+# QEMU (virt-manager): only emulate PCs, not every architecture
+QEMU_SOFTMMU_TARGETS="x86_64 i386"
+QEMU_USER_TARGETS=""
 GRUB_PLATFORMS="efi-64 pc"
 
 # Full Wayland Plasma desktop on OpenRC.

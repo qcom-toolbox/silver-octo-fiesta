@@ -1,0 +1,17 @@
+# Running virtual machines ON this system (skip with build.sh --no-vm-host).
+# Same format as extras.list: missing or unbuildable packages only warn.
+
+# QEMU/KVM with libvirt and the virt-manager GUI
+app-emulation/qemu
+app-emulation/libvirt
+app-emulation/virt-manager
+# UEFI firmware (OVMF) and TPM 2.0 emulation for VMs, e.g. Windows 11 guests
+sys-firmware/edk2-bin | sys-firmware/edk2-ovmf-bin | sys-firmware/edk2-ovmf
+app-crypt/swtpm
+# NAT networking of libvirt's "default" network
+net-dns/dnsmasq
+net-firewall/nftables
+
+# VirtualBox host with its kernel modules (rebuilt with every distribution kernel)
+app-emulation/virtualbox
+app-emulation/virtualbox-modules

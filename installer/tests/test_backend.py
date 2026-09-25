@@ -49,7 +49,8 @@ def target(tmp_path):
     (root / "etc/default").mkdir(parents=True)
     (root / "etc/portage/make.conf").write_text('CFLAGS="-O2"\nMAKEOPTS="-j32 -l32"\n')
     (root / "etc/default/grub").write_text('GRUB_DISTRIBUTOR="X"\nGRUB_TIMEOUT=3\n')
-    (root / "etc/group").write_text("root:x:0:\nwheel:x:10:\naudio:x:18:\nvideo:x:27:\nusers:x:100:\n")
+    (root / "etc/group").write_text("root:x:0:\nwheel:x:10:\naudio:x:18:\nvideo:x:27:\nusers:x:100:\n"
+                                    "kvm:x:78:\nlibvirt:x:970:\n")
     (root / "etc/sddm.conf.d").mkdir()
     (root / "etc/sddm.conf.d/50-live-autologin.conf").write_text("[Autologin]\nUser=live\n")
     (root / "usr/share/applications").mkdir(parents=True)
@@ -99,7 +100,8 @@ def test_erase_install_uefi_btrfs(target):
     assert "-j32" not in (root / "etc/portage/make.conf").read_text()
 
     useradd = next(c for c in runner.commands if "useradd" in c)
-    assert useradd[useradd.index("--groups") + 1] == "users,wheel,audio,video"
+    # only groups that exist (no vboxusers without VirtualBox), including the VM ones
+    assert useradd[useradd.index("--groups") + 1] == "users,wheel,audio,video,kvm,libvirt"
     assert "alex:s3cret!\n" in runner.inputs
     assert any(c[-2:] == ["--lock", "root"] for c in runner.commands)
     # the password never ends up in the log
