@@ -125,6 +125,8 @@ Compiling everything from source takes many hours: roughly 5–10 h on a 5950X,
   computer stays usable while it compiles.
 - `--no-vm-host` leaves out QEMU/virt-manager and VirtualBox, which saves
   roughly an hour of compiling.
+- `--no-multilib` leaves out the 32-bit libraries (see below), which saves
+  roughly 1–2 hours of compiling.
 - Every compiled package is cached in `work/cache/binpkgs/<edition>`. If you
   re-run a build that failed or was interrupted, it continues where it
   stopped instead of starting over.
@@ -315,6 +317,20 @@ cd installer && python3 -m gentoo_installer --dry-run
   `dispatch-conf` and updates Flatpak apps.
 - **Discover** installs Flatpak apps from Flathub, such as Steam, Discord or
   OBS. The system already has `vm.max_map_count` raised for games.
+- **32-bit programs work.** Steam, Wine/Proton, Lutris and older games need
+  32-bit versions of many libraries. The system has them (unless built with
+  `--no-multilib`):
+  - OpenGL/Vulkan through mesa, or NVIDIA's own 32-bit libraries on the
+    NVIDIA edition
+  - VA-API, PipeWire/PulseAudio/ALSA, OpenAL and SDL2
+  - X11/Wayland, fonts, GLib, D-Bus, udev, USB, GnuTLS/OpenSSL and more
+
+  They are listed in `config/packages/multilib-32bit.list`. Portage works out
+  which of their dependencies also need a 32-bit build and records those in
+  `/etc/portage/package.use/zz-autounmask`. Steam itself is not installed.
+  Install it from Discover (Flathub), or natively with
+  `sudo eselect repository enable steam-overlay && sudo emaint sync -r steam-overlay && sudo emerge games-util/steam-launcher`.
+  The kernel's 32-bit support (`IA32_EMULATION`) is on.
 - The user you create in the installer is in the `wheel` group and can run
   anything with `sudo`. Root logins stay locked unless you tick "same password for root".
 - `neofetch` greets you in every new Konsole window. `fastfetch`, `hyfetch`,
@@ -340,6 +356,7 @@ config/
   portage/                  make.conf template, package.use/license/keywords, @desktop-core set
   packages/extras.list      desktop applications (with fallbacks for renamed packages)
   packages/vm-host.list     QEMU/libvirt/virt-manager and VirtualBox (--no-vm-host skips it)
+  packages/multilib-32bit.list  32-bit libraries for Steam/Wine/Proton (--no-multilib skips it)
   kernel/desktop.config     kernel config fragment (/etc/kernel/config.d)
 rootfs/                     files copied into every image (SDDM Wayland, OpenRC, sysctl, ...)
 rootfs-live/                files only for the live session (removed by the installer)

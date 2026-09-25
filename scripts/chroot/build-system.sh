@@ -19,7 +19,7 @@ STATE_DIR=/usr/share/gentoo-desktop
 MARKERS=/var/lib/gentoo-desktop-build
 
 : "${JOBS:=$(nproc)}" "${BINHOST:=0}" "${REBUILD:=1}" "${BUILD_DATE:=$(date +%Y%m%d)}"
-: "${VM_HOST:=1}"
+: "${VM_HOST:=1}" "${MULTILIB:=1}"
 EMERGE_JOBS=2
 ((JOBS >= 12)) && EMERGE_JOBS=3
 ((JOBS >= 24)) && EMERGE_JOBS=4
@@ -67,10 +67,10 @@ add_service() { # <service> <runlevel>
 	fi
 }
 
-# Install every line of a package list. "a | b" means: the first of a, b that
-# exists in the tree. Missing packages only warn.
-install_list() {
-	local line alt found pkgs=()
+# Print the packages of a list file, one per line. "a | b" means: the first of
+# a, b that exists in the tree. Missing packages only warn.
+resolve_list() {
+	local line alt found
 	while IFS= read -r line; do
 		found=
 		IFS='|' read -r -a alts <<<"${line}"
@@ -82,11 +82,17 @@ install_list() {
 			fi
 		done
 		if [[ -n ${found} ]]; then
-			pkgs+=("${found}")
+			echo "${found}"
 		else
 			warn "Not available in the tree, skipping: ${line}"
 		fi
 	done < <(list_atoms "$1")
+}
+
+# Install every package of a list file (see resolve_list).
+install_list() {
+	local -a pkgs
+	mapfile -t pkgs < <(resolve_list "$1")
 	((${#pkgs[@]})) || return 0
 
 	info "Installing ${#pkgs[@]} packages from ${1#"${SRC}"/}"
@@ -157,6 +163,45 @@ setup_locale() {
 	env-update
 }
 
+# 32-bit libraries (multilib) for Steam, Wine/Proton and other 32-bit programs.
+setup_multilib() {
+	local use=/etc/portage/package.use/30-multilib-32bit
+	local auto=/etc/portage/package.use/zz-autounmask
+	local -a pkgs
+	mapfile -t pkgs < <(resolve_list "${SRC}/config/packages/multilib-32bit.list")
+	((${#pkgs[@]})) || return 0
+
+	info "Enabling 32-bit (abi_x86_32) builds of ${#pkgs[@]} libraries for 32-bit programs"
+	{
+		echo "# 32-bit libraries for Steam, Wine/Proton and other 32-bit programs"
+		echo "# (from config/packages/multilib-32bit.list; their dependencies are in zz-autounmask)"
+		printf '%s abi_x86_32\n' "${pkgs[@]}"
+		[[ ${GPU_ID} == nvidia ]] && echo "x11-drivers/nvidia-drivers abi_x86_32"
+	} >"${use}"
+
+	# Let Portage add abi_x86_32 to every dependency that needs it too. It only
+	# changes USE flags (no keywords, masks or licenses) and writes straight to
+	# package.use/zz-autounmask; a few passes, as each one can reveal more.
+	local pass before after
+	for pass in 1 2 3 4; do
+		before=$(cat "${auto}" 2>/dev/null || true)
+		if CONFIG_PROTECT_MASK="/etc/portage" emerge --pretend --quiet --update --deep --newuse \
+			--autounmask=y --autounmask-use=y --autounmask-write=y --autounmask-keep-keywords=y \
+			--autounmask-keep-masks=y --autounmask-license=n @world "${pkgs[@]}" >/dev/null; then
+			break
+		fi
+		after=$(cat "${auto}" 2>/dev/null || true)
+		if [[ ${before} == "${after}" ]]; then
+			warn "Portage could not work out all 32-bit dependencies (pass ${pass}); the next step shows why"
+			break
+		fi
+		info "Added 32-bit builds for more dependencies (pass ${pass})"
+	done
+
+	emerge --update --deep --newuse --noreplace "${pkgs[@]}" ||
+		warn "Some 32-bit libraries could not be installed; 32-bit programs may be missing pieces"
+}
+
 build_world() {
 	mkdir -p "${MARKERS}"
 	emerge --oneshot --update sys-apps/portage
@@ -184,6 +229,9 @@ build_world() {
 		info "Installing CPU specific packages: ${CPU_PACKAGES}"
 		# shellcheck disable=SC2086 # a list of atoms
 		emerge --noreplace ${CPU_PACKAGES}
+	fi
+	if ((MULTILIB)); then
+		setup_multilib
 	fi
 
 	emerge --update --deep --newuse @world

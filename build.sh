@@ -41,6 +41,8 @@ Options:
       --out <dir>       Output directory for ISOs (default: ./out)
       --no-gpg          Skip the GPG signature check of the stage3 tarball
       --no-vm-host      Leave out QEMU/virt-manager and VirtualBox (shorter build)
+      --no-multilib     Leave out the 32-bit libraries (for Steam, Wine/Proton and
+                        other 32-bit programs); saves roughly 1-2 hours
       --nice            Build at the lowest CPU and disk priority so the computer
                         stays usable while it runs
       --force           Build even if this machine cannot run the edition's code
@@ -59,7 +61,7 @@ EOF
 }
 
 CPU="" GPU="nvidia" JOBS=$(nproc) WORK="${TOP}/work" OUT="${TOP}/out"
-STEPS="fetch,build,iso" BINHOST=0 REBUILD=1 FORCE=0 CLEAN=0 NO_GPG=0 VM_HOST=1 NICE=0
+STEPS="fetch,build,iso" BINHOST=0 REBUILD=1 FORCE=0 CLEAN=0 NO_GPG=0 VM_HOST=1 MULTILIB=1 NICE=0
 CONTROL=""
 ORIG_ARGS=("$@")
 
@@ -77,6 +79,7 @@ while [[ $# -gt 0 ]]; do
 		--force) FORCE=1 ;;
 		--clean) CLEAN=1 ;;
 		--no-vm-host) VM_HOST=0 ;;
+		--no-multilib) MULTILIB=0 ;;
 		--nice) NICE=1 ;;
 		--pause | --continue | --resume | --stop | --status) CONTROL=${1#--} ;;
 		-h | --help) usage; exit 0 ;;
@@ -368,7 +371,7 @@ run_chroot() {
 		HOME=/root TERM="${TERM:-xterm}" LANG=C.UTF-8 \
 		PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 		CPU="${CPU}" GPU="${GPU}" EDITION="${EDITION}" JOBS="${JOBS}" \
-		BINHOST="${BINHOST}" REBUILD="${REBUILD}" BUILD_DATE="${BUILD_DATE}" VM_HOST="${VM_HOST}" \
+		BINHOST="${BINHOST}" REBUILD="${REBUILD}" BUILD_DATE="${BUILD_DATE}" VM_HOST="${VM_HOST}" MULTILIB="${MULTILIB}" \
 		ISO_NAME="${ISO_NAME}" ISO_LABEL="${ISO_LABEL}" \
 		/bin/bash "$@"
 }
