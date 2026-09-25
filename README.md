@@ -186,9 +186,9 @@ real hardware it starts nothing.
 |---|---|
 | QEMU/KVM, Proxmox, virt-manager | `qemu-guest-agent`, `spice-vdagent` |
 | VMware Workstation / ESXi | `open-vm-tools` |
-| Microsoft Hyper-V | Hyper-V daemons (KVP, VSS, file copy) |
+| Microsoft Hyper-V | Built into the kernel (`hv_utils`: shutdown, time sync, heartbeat); Gentoo has no KVP/VSS daemon package |
 | VirtualBox | VirtualBox Guest Additions (clipboard, shared folders) |
-| Xen / XCP-ng | `xe-guest-utilities` |
+| Xen / XCP-ng | Built into the kernel (Xen front-end drivers); the XCP-ng agent `xe-guest-utilities` is left out because it needs the whole Xen host toolstack |
 
 ### Running virtual machines on Gentoo Linux
 
@@ -327,7 +327,7 @@ cd installer && python3 -m gentoo_installer --dry-run
 
   They are listed in `config/packages/multilib-32bit.list`. Portage works out
   which of their dependencies also need a 32-bit build and records those in
-  `/etc/portage/package.use/zz-autounmask`. Steam itself is not installed.
+  `/etc/portage/package.use/30-multilib-32bit`. Steam itself is not installed.
   Install it from Discover (Flathub), or natively with
   `sudo eselect repository enable steam-overlay && sudo emaint sync -r steam-overlay && sudo emerge games-util/steam-launcher`.
   The kernel's 32-bit support (`IA32_EMULATION`) is on.

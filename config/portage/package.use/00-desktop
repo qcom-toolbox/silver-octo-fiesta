@@ -27,6 +27,18 @@ app-emulation/libvirt qemu virt-network libvirtd policykit
 app-emulation/virt-manager gui
 app-emulation/virtualbox-modules dist-kernel
 net-dns/dnsmasq script
+# swtpm (virtual TPM, e.g. for Windows 11 VMs) and virt-manager's viewer need these
+net-libs/gnutls tools pkcs11
+net-misc/spice-gtk usbredir
+
+# VMware guest tools: with Mesa >= 25.2 "resolutionkms" requires Mesa and
+# libdrm WITHOUT VMware graphics, which would drop 3D in VMware/VirtualBox
+# guests. KWin already follows the VM window size through vmwgfx on Wayland.
+app-emulation/open-vm-tools -resolutionkms
+
+# The desktop profile enables "gpm" (console mouse) globally; on ncurses it
+# makes a circular dependency (gpm needs ncurses) and is useless on a desktop.
+sys-libs/ncurses -gpm
 
 # Printing / discovery
 net-print/cups zeroconf

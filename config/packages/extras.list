@@ -75,13 +75,14 @@ app-arch/unzip
 app-arch/zip
 
 # Virtual machine guest tools. Installed everywhere; the vm-guest service
-# only starts the ones for the hypervisor it detects at boot.
+# only starts the ones for the hypervisor it detects at boot. (Hyper-V needs
+# none: the kernel's hv_utils handles shutdown, time sync and heartbeat; the
+# KVP/VSS daemons are not packaged in Gentoo. Xen needs none either: the
+# XCP-ng agent xe-guest-utilities would pull in the whole Xen host toolstack.)
 app-emulation/qemu-guest-agent
 app-emulation/spice-vdagent
 app-emulation/open-vm-tools
-app-emulation/hyperv-daemons | sys-apps/hyperv-daemons
 app-emulation/virtualbox-guest-additions
-app-emulation/xe-guest-utilities
 
 # Fonts
 media-fonts/noto

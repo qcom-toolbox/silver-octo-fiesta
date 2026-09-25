@@ -32,6 +32,8 @@ Editions:
 
 Options:
   -s, --step <list>     Comma separated steps to run: fetch,build,iso (default: all)
+                        "check" resolves the whole package plan against the current
+                        Gentoo tree in minutes, without compiling (after "fetch")
   -j, --jobs <n>        Parallel compile jobs (default: $(nproc))
       --binhost         Use Gentoo's official x86-64-v3 binary packages where
                         possible (much faster build, less CPU-specific tuning)
@@ -330,7 +332,10 @@ mount_chroot() {
 # Unmount whatever an earlier, killed build left mounted below the rootfs.
 umount_stale() {
 	local mp
-	findmnt -rn -o TARGET | grep -F "${ROOT}/" | sort -r | while read -r mp; do
+	local -a stale
+	# (grep finds nothing in the normal case; that must not end the build)
+	mapfile -t stale < <(findmnt -rn -o TARGET | grep -F "${ROOT}/" | sort -r || true)
+	for mp in "${stale[@]}"; do
 		umount -R "${mp}" 2>/dev/null || umount -R -l "${mp}" 2>/dev/null || true
 	done
 }
@@ -364,7 +369,11 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 run_chroot() {
-	local -a prio=()
+	local -a prio=() proxy=() var
+	# Keep the host's proxy settings, so builds behind a proxy can download.
+	for var in http_proxy https_proxy ftp_proxy no_proxy HTTP_PROXY HTTPS_PROXY FTP_PROXY NO_PROXY; do
+		[[ -n ${!var:-} ]] && proxy+=("${var}=${!var}")
+	done
 	# --nice: lowest CPU and I/O priority for everything in the build.
 	((NICE)) && prio=(nice -n 19 ionice -c 3)
 	"${prio[@]}" chroot "${ROOT}" /usr/bin/env -i \
@@ -372,9 +381,14 @@ run_chroot() {
 		PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 		CPU="${CPU}" GPU="${GPU}" EDITION="${EDITION}" JOBS="${JOBS}" \
 		BINHOST="${BINHOST}" REBUILD="${REBUILD}" BUILD_DATE="${BUILD_DATE}" VM_HOST="${VM_HOST}" MULTILIB="${MULTILIB}" \
+		CHECK_ONLY="${CHECK_ONLY:-0}" "${proxy[@]}" \
 		ISO_NAME="${ISO_NAME}" ISO_LABEL="${ISO_LABEL}" \
 		/bin/bash "$@"
 }
+
+# Gentoo Linux Release Engineering (Automated Weekly Release Key) signs stage3s.
+GENTOO_RELEASE_KEY="13EBBDBEDE7A12775DFDB1BABB572E0E2D182910"
+GENTOO_SERVICE_KEYS="https://qa-reports.gentoo.org/output/service-keys.gpg"
 
 # --------------------------------------------------------------------------
 # Steps
@@ -411,10 +425,21 @@ step_fetch() {
 		curl -fsSL -o "${STAGE3_DIR}/${file}.asc" "${STAGE3_MIRROR}/${latest}.asc"
 		local gnupg
 		gnupg=$(mktemp -d)
-		GNUPGHOME=${gnupg} gpg --quiet --auto-key-locate=clear,nodefault,wkd --locate-key releng@gentoo.org >/dev/null ||
-			die "Could not fetch the Gentoo release key (use --no-gpg to skip)"
-		GNUPGHOME=${gnupg} gpg --quiet --verify "${STAGE3_DIR}/${file}.asc" "${STAGE3_DIR}/${file}" ||
-			die "Bad GPG signature on ${file}"
+		if ! GNUPGHOME=${gnupg} gpg --quiet --auto-key-locate=clear,nodefault,wkd \
+			--locate-key releng@gentoo.org >/dev/null 2>&1; then
+			# gpg's dirmngr ignores HTTPS proxies; fall back to Gentoo's published
+			# key bundle, fetched with curl (which honours them).
+			info "WKD lookup failed, using Gentoo's service key bundle instead"
+			if ! curl -fsSL -o "${gnupg}/service-keys.gpg" "${GENTOO_SERVICE_KEYS}" ||
+				! GNUPGHOME=${gnupg} gpg --quiet --import "${gnupg}/service-keys.gpg" 2>/dev/null; then
+				die "Could not fetch the Gentoo release key (use --no-gpg to skip)"
+			fi
+		fi
+		# Only accept a signature made by Gentoo's automated release key (or one
+		# of its subkeys: VALIDSIG ends with the primary key's fingerprint).
+		GNUPGHOME=${gnupg} gpg --status-fd 1 --quiet --verify "${STAGE3_DIR}/${file}.asc" "${STAGE3_DIR}/${file}" \
+			2>/dev/null | grep -q "^\[GNUPG:\] VALIDSIG .* ${GENTOO_RELEASE_KEY}\$" ||
+			die "Bad or unexpected GPG signature on ${file}"
 		rm -rf "${gnupg}"
 	else
 		warn "gpg not installed: only the checksum was verified"
@@ -428,6 +453,13 @@ step_fetch() {
 	mkdir -p "${ROOT}"
 	tar xpf "${STAGE3_DIR}/${file}" --xattrs-include='*.*' --numeric-owner -C "${ROOT}"
 	echo "${file}" >"${ROOT}/.gentoo-stage3"
+}
+
+step_check() {
+	[[ -f ${ROOT}/.gentoo-stage3 ]] || die "No root filesystem yet, run the 'fetch' step first"
+	mount_chroot
+	info "Checking the ${EDITION} package plan against the current Gentoo tree"
+	CHECK_ONLY=1 run_chroot /mnt/gentoo-src/scripts/chroot/build-system.sh
 }
 
 step_build() {
@@ -496,8 +528,8 @@ IFS=, read -r -a steps <<<"${STEPS}"
 for step in "${steps[@]}"; do
 	echo "${step}" >"${STEP_FILE}"
 	case ${step} in
-		fetch | build | iso) "step_${step}" ;;
+		fetch | check | build | iso) "step_${step}" ;;
 		all) step_fetch; step_build; step_iso ;;
-		*) die "Unknown step '${step}' (expected fetch, build or iso)" ;;
+		*) die "Unknown step '${step}' (expected fetch, check, build or iso)" ;;
 	esac
 done

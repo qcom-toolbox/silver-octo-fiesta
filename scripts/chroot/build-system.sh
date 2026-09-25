@@ -19,7 +19,7 @@ STATE_DIR=/usr/share/gentoo-desktop
 MARKERS=/var/lib/gentoo-desktop-build
 
 : "${JOBS:=$(nproc)}" "${BINHOST:=0}" "${REBUILD:=1}" "${BUILD_DATE:=$(date +%Y%m%d)}"
-: "${VM_HOST:=1}" "${MULTILIB:=1}"
+: "${VM_HOST:=1}" "${MULTILIB:=1}" "${CHECK_ONLY:=0}"
 EMERGE_JOBS=2
 ((JOBS >= 12)) && EMERGE_JOBS=3
 ((JOBS >= 24)) && EMERGE_JOBS=4
@@ -163,43 +163,117 @@ setup_locale() {
 	env-update
 }
 
-# 32-bit libraries (multilib) for Steam, Wine/Proton and other 32-bit programs.
-setup_multilib() {
+# 32-bit libraries (multilib) for Steam, Wine/Proton and other 32-bit programs:
+# set abi_x86_32 on them and on every dependency that needs it too.
+# Leaves the package list in MULTILIB_PKGS.
+multilib_use() {
 	local use=/etc/portage/package.use/30-multilib-32bit
-	local auto=/etc/portage/package.use/zz-autounmask
 	local -a pkgs
 	mapfile -t pkgs < <(resolve_list "${SRC}/config/packages/multilib-32bit.list")
+	MULTILIB_PKGS=("${pkgs[@]}")
 	((${#pkgs[@]})) || return 0
 
 	info "Enabling 32-bit (abi_x86_32) builds of ${#pkgs[@]} libraries for 32-bit programs"
 	{
 		echo "# 32-bit libraries for Steam, Wine/Proton and other 32-bit programs"
-		echo "# (from config/packages/multilib-32bit.list; their dependencies are in zz-autounmask)"
+		echo "# (from config/packages/multilib-32bit.list, then the dependencies they need)"
 		printf '%s abi_x86_32\n' "${pkgs[@]}"
 		[[ ${GPU_ID} == nvidia ]] && echo "x11-drivers/nvidia-drivers abi_x86_32"
+		echo "# --- dependencies (found by Portage) ---"
 	} >"${use}"
 
-	# Let Portage add abi_x86_32 to every dependency that needs it too. It only
-	# changes USE flags (no keywords, masks or licenses) and writes straight to
-	# package.use/zz-autounmask; a few passes, as each one can reveal more.
-	local pass before after
-	for pass in 1 2 3 4; do
-		before=$(cat "${auto}" 2>/dev/null || true)
-		if CONFIG_PROTECT_MASK="/etc/portage" emerge --pretend --quiet --update --deep --newuse \
-			--autounmask=y --autounmask-use=y --autounmask-write=y --autounmask-keep-keywords=y \
-			--autounmask-keep-masks=y --autounmask-license=n @world "${pkgs[@]}" >/dev/null; then
-			break
+	# The dependency chain is deep (e.g. libpulse -> libsndfile -> flac, ogg,
+	# vorbis, opus, lame, mpg123 ...) and one autounmask run gives up on it.
+	# So: take the abi_x86_32 changes Portage proposes, add them, and repeat
+	# until the plan resolves. Only abi_x86_32 is ever added.
+	local pass out new count=0
+	for pass in $(seq 1 15); do
+		if out=$(emerge --pretend --update --deep --newuse --backtrack=100 \
+			--ignore-built-slot-operator-deps=y --autounmask=y --autounmask-use=y \
+			--autounmask-backtrack=y --autounmask-write=n --autounmask-keep-keywords=y \
+			--autounmask-keep-masks=y --autounmask-license=n @world "${pkgs[@]}" 2>&1); then
+			info "32-bit dependencies complete: ${count} added in $((pass - 1)) passes"
+			return 0
 		fi
-		after=$(cat "${auto}" 2>/dev/null || true)
-		if [[ ${before} == "${after}" ]]; then
+		new=$(grep -E '^[<>=~]*[a-z0-9-]+/[^ ]+ .*abi_x86_32' <<<"${out}" | sort -u |
+			grep -vxF -f "${use}" || true)
+		if [[ -z ${new} ]]; then
 			warn "Portage could not work out all 32-bit dependencies (pass ${pass}); the next step shows why"
-			break
+			return 0
 		fi
-		info "Added 32-bit builds for more dependencies (pass ${pass})"
+		echo "${new}" >>"${use}"
+		count=$((count + $(wc -l <<<"${new}")))
+		info "Pass ${pass}: $(wc -l <<<"${new}") more libraries need a 32-bit build"
 	done
+	warn "32-bit dependencies still incomplete after ${pass} passes; the next step shows why"
+}
 
-	emerge --update --deep --newuse --noreplace "${pkgs[@]}" ||
+setup_multilib() {
+	multilib_use
+	((${#MULTILIB_PKGS[@]})) || return 0
+	emerge --update --deep --newuse --noreplace "${MULTILIB_PKGS[@]}" ||
 		warn "Some 32-bit libraries could not be installed; 32-bit programs may be missing pieces"
+}
+
+# Go on its own first: in a --deep update Portage resolves Go's build
+# dependency "|| ( go go-bootstrap )" to Go itself, a circular dependency
+# (hit through plasma-meta -> plasma-vault -> gocryptfs). Installed alone it
+# is built with go-bootstrap; afterwards the installed Go satisfies itself.
+install_go() {
+	if ! portageq has_version / dev-lang/go; then
+		info "Installing Go (bootstrapped) before the desktop"
+		emerge --oneshot --noreplace dev-lang/go
+	fi
+}
+
+# build.sh --step check: resolve the complete package plan against the current
+# Gentoo tree without compiling anything. Catches renamed or removed packages
+# and USE flag conflicts in minutes instead of hours into a build.
+check_plan() {
+	local f log=/var/log/gentoo-desktop-check.log
+	local -a pkgs=() list=() lists=("${SRC}/config/packages/extras.list" "${GPU_DIR}/packages.list")
+	((VM_HOST)) && lists+=("${SRC}/config/packages/vm-host.list")
+	for f in "${lists[@]}"; do
+		mapfile -t list < <(resolve_list "${f}")
+		pkgs+=("${list[@]}")
+	done
+	# shellcheck disable=SC2206 # a list of atoms
+	[[ -n ${CPU_PACKAGES} ]] && pkgs+=(${CPU_PACKAGES})
+	# Mirror the build's two phases: first the stage3 is recompiled (unless
+	# --no-rebuild or --binhost), then everything else is a normal update.
+	if ((REBUILD && !BINHOST)); then
+		info "Phase 1: recompiling the stage3 (@world) for ${CPU_CFLAGS}"
+		emerge --pretend --emptytree @world >"${log}" 2>&1 ||
+			{ grep -v '^\[ebuild\|^\[binary\|^$' "${log}" | tail -n 40 >&2; die "Phase 1 does not resolve (see ${log})"; }
+		info "OK: $(grep -c '^\[ebuild' "${log}") packages"
+	fi
+
+	# As in the build: Go is installed on its own (this compiles Go, a few
+	# minutes; Portage cannot plan it otherwise), and the 32-bit libraries are
+	# set up after the stage3 rebuild.
+	install_go
+	if ((MULTILIB)); then
+		multilib_use
+		pkgs+=("${MULTILIB_PKGS[@]}")
+	fi
+
+	# The build recompiles the stage3 first, which e.g. moves the installed
+	# Perl modules to a new Perl. A dry run cannot do that, so ignore what
+	# the installed packages were built against.
+	info "Phase 2: @world, @desktop-core, @desktop-gpu and ${#pkgs[@]} more packages (no compiling)"
+	if emerge --pretend --verbose --update --deep --newuse --with-bdeps=y --backtrack=100 \
+		--ignore-built-slot-operator-deps=y \
+		@world @desktop-core @desktop-gpu "${pkgs[@]}" >"${log}" 2>&1; then
+		info "OK: the plan resolves. $(grep -c '^\[ebuild' "${log}") packages would be built,"
+		info "$(grep -c '^\[binary' "${log}") would come from binary packages. Details: ${log}"
+		if [[ -s /etc/portage/package.use/30-multilib-32bit ]]; then
+			info "$(grep -c abi_x86_32 /etc/portage/package.use/30-multilib-32bit) packages are built in 32-bit as well."
+		fi
+	else
+		warn "The plan does NOT resolve. Portage says:"
+		grep -v '^\[ebuild\|^\[binary\|^$' "${log}" | tail -n 60 >&2
+		die "Fix the configuration above (full output: ${log})"
+	fi
 }
 
 build_world() {
@@ -217,6 +291,7 @@ build_world() {
 	info "Updating @world with the desktop USE flags"
 	emerge --update --deep --newuse @world
 
+	install_go
 	info "Installing the core desktop (@desktop-core, @desktop-gpu)"
 	emerge --update --deep --newuse --noreplace @desktop-core @desktop-gpu
 
@@ -355,6 +430,10 @@ finalize() {
 
 setup_portage
 sync_tree
+if ((CHECK_ONLY)); then
+	check_plan
+	exit 0
+fi
 setup_locale
 # Common config files go in before the packages (e.g. the dracut settings for
 # the kernel's initramfs) and are re-applied afterwards. The GPU files come

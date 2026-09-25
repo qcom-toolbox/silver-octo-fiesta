@@ -27,6 +27,10 @@ GRUB_PLATFORMS="efi-64 pc"
 USE="dist-kernel wayland pipewire screencast vaapi vulkan networkmanager bluetooth elogind -systemd flatpak zstd"
 
 ACCEPT_LICENSE="-* @FREE @BINARY-REDISTRIBUTABLE"
+
+# Download source code and Portage snapshots over HTTPS (also used by
+# emerge-webrsync); add a closer mirror in front with mirrorselect if you like.
+GENTOO_MIRRORS="https://distfiles.gentoo.org"
 LC_MESSAGES=C.UTF-8
 
 # BEGIN build-only (removed from the finished image)

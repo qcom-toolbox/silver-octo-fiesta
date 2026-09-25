@@ -11,7 +11,9 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
@@ -28,6 +30,8 @@ SQUASHFS_CANDIDATES = (
     "/run/initramfs/squashed.img",
 )
 MIN_DISK_BYTES = 30 * system.GIB
+# grub-mkconfig only writes root=UUID=... when udev made this link.
+DEV_BY_UUID = "/dev/disk/by-uuid"
 
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 HOSTNAME_RE = re.compile(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)$")
@@ -280,6 +284,14 @@ class Runner:
             raise InstallError(f"'{shlex.join(cmd)}' failed (exit code {proc.returncode}).\n" + "\n".join(detail))
         return proc.stdout
 
+    def succeeds(self, cmd: Sequence[str]) -> bool:
+        """Run a command, report whether it worked instead of raising."""
+        try:
+            self.run(cmd)
+            return True
+        except InstallError:
+            return False
+
     def _stream(self, cmd: Sequence[str], check: bool, on_output: Callable[[str], None]) -> str:
         proc = subprocess.Popen(list(cmd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         assert proc.stdout is not None
@@ -369,6 +381,7 @@ class Installer:
         edition: dict[str, str] | None = None,
         target: str = TARGET,
         live_files: str = LIVE_FILES,
+        source: str | None = None,
     ):
         self.cfg = config
         self.r = runner
@@ -383,7 +396,9 @@ class Installer:
         self.zfs_dev = ""  # the partition holding the ZFS pool
         self._luks_open = False
         self._zpool_created = False
-        self.source = ""
+        self._target_private = False
+        # System to copy; found automatically on the live ISO (see _find_source).
+        self.source = source or ""
         self._mounted_source = False
         self._chroot_mounts: list[str] = []
         self._done = 0.0
@@ -492,7 +507,24 @@ class Installer:
     def _separate_boot(self) -> bool:
         return self.cfg.encrypt or self.cfg.filesystem == "zfs"
 
+    def _private_target(self) -> None:
+        """Make the target directory a private mount point.
+
+        "/" is usually a shared mount (systemd). Everything mounted below the
+        target would otherwise also appear in other mount namespaces (sandboxed
+        services); those copies cannot always be unmounted again, which keeps
+        the new file systems busy: the LUKS volume could not be closed or the
+        ZFS pool exported at the end.
+        """
+        if self._target_private:
+            return
+        self.r.mkdir(self.target)
+        self.r.run(["mount", "--bind", self.target, self.target])
+        self.r.run(["mount", "--make-private", self.target])
+        self._target_private = True
+
     def format(self) -> None:
+        self._private_target()
         c = self.cfg
         label = self.edition["DISTRO_SHORT"][:16]
         if self.efi_dev and (c.mode == "erase" or c.format_efi):
@@ -513,6 +545,7 @@ class Installer:
             self.r.run(["mkfs.btrfs", "--force", "--label", label, self.root_dev])
         else:
             self.r.run(["mkfs.ext4", "-F", "-L", label, self.root_dev])
+        self.r.run(["udevadm", "settle"], check=False)  # let udev see the new file systems
 
     def _create_zpool(self) -> None:
         c = self.cfg
@@ -573,7 +606,7 @@ class Installer:
         return "/"
 
     def copy_system(self) -> None:
-        self.source = self._find_source()
+        self.source = self.source or self._find_source()
         cmd = ["rsync", "-aHAX", "--numeric-ids", "--info=progress2", "--no-inc-recursive"]
         for pattern in RSYNC_EXCLUDES:
             cmd.append(f"--exclude={pattern}")
@@ -825,23 +858,90 @@ class Installer:
                             "--removable", "--recheck")
         else:
             self.chroot("grub-install", "--target=i386-pc", "--recheck", self.cfg.disk)
+        if self.cfg.filesystem != "zfs":
+            self._ensure_uuid_link(self.root_dev)
         self.chroot("grub-mkconfig", "-o", "/boot/grub/grub.cfg")
+
+    def _ensure_uuid_link(self, dev: str) -> None:
+        """Make sure /dev/disk/by-uuid knows the root file system.
+
+        Without the link (udev slow or not running), grub-mkconfig falls back
+        to root=/dev/<name of the disk right now>, which may not exist on the
+        next boot.
+        """
+        self.r.run(["udevadm", "settle"], check=False)
+        uuid = self._uuid(dev)
+        link = os.path.join(DEV_BY_UUID, uuid)
+        if self.r.dry_run or os.path.lexists(link):
+            return
+        self.r.log(f"udev has not created {link} yet; creating it so GRUB uses root=UUID=")
+        self.r.mkdir(DEV_BY_UUID)
+        self.r.symlink(os.path.realpath(dev), link)
 
     def finish(self) -> None:
         self.r.run(["sync"], check=False)
 
+    def _stop_target_processes(self) -> None:
+        """Stop processes still running inside the new system.
+
+        A tool run in the chroot can leave a helper behind (an agent, a cache
+        daemon). It keeps the file systems busy, so they could not be
+        unmounted, the encrypted volume closed or the ZFS pool exported.
+        """
+        if self.r.dry_run:
+            return
+
+        def rooted_in_target() -> list[int]:
+            pids = []
+            for entry in os.listdir("/proc"):
+                if not entry.isdigit() or int(entry) == os.getpid():
+                    continue
+                try:
+                    root = os.readlink(f"/proc/{entry}/root")
+                except OSError:
+                    continue
+                if root == self.target or root.startswith(self.target + "/"):
+                    pids.append(int(entry))
+            return pids
+
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            pids = rooted_in_target()
+            if not pids:
+                return
+            for pid in pids:
+                try:
+                    name = Path(f"/proc/{pid}/comm").read_text().strip()
+                    self.r.log(f"stopping leftover process {pid} ({name}) in the new system")
+                    os.kill(pid, sig)
+                except OSError:
+                    pass
+            time.sleep(1)
+
     def cleanup(self) -> None:
         """Unmount everything; safe to call more than once and after errors."""
+        self._stop_target_processes()
         for mp in reversed(self._chroot_mounts):
-            self.r.run(["umount", "--recursive", "--lazy", mp], check=False)
+            if not self.r.succeeds(["umount", "--recursive", mp]):
+                self.r.run(["umount", "--recursive", "--lazy", mp], check=False)
         self._chroot_mounts = []
         if self.root_dev:
             self.r.run(["umount", "--recursive", self.target], check=False)
+        if self._target_private:  # the private bind mount below everything, if still there
+            if not self.r.dry_run and os.path.ismount(self.target):
+                self.r.run(["umount", self.target], check=False)
+            self._target_private = False
         if self._zpool_created:
             self.r.run(["zpool", "export", ZFS_POOL], check=False)
             self._zpool_created = False
         if self._luks_open:
-            self.r.run(["cryptsetup", "close", LUKS_NAME], check=False)
+            for _ in range(5):  # udev may still hold the device for a moment
+                if self.r.succeeds(["cryptsetup", "close", LUKS_NAME]):
+                    break
+                self.r.run(["udevadm", "settle"], check=False)
+                if not self.r.dry_run:
+                    time.sleep(1)
+            else:
+                self.r.log(f"Could not close /dev/mapper/{LUKS_NAME}; it is closed at the next reboot")
             self._luks_open = False
         if self._mounted_source:
             self.r.run(["umount", SOURCE_MOUNT], check=False)

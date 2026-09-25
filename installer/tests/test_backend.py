@@ -42,6 +42,14 @@ def make_config(**overrides):
     return cfg
 
 
+@pytest.fixture(autouse=True)
+def fake_dev_by_uuid(tmp_path, monkeypatch):
+    """Keep the tests away from the real /dev/disk/by-uuid."""
+    path = tmp_path / "dev-by-uuid"
+    monkeypatch.setattr(backend, "DEV_BY_UUID", str(path))
+    return path
+
+
 @pytest.fixture
 def target(tmp_path):
     root = tmp_path / "target"
@@ -109,6 +117,20 @@ def test_erase_install_uefi_btrfs(target):
 
     assert progress[-1] == 1.0
     assert progress == sorted(progress)
+
+
+def test_uuid_link_is_created_when_udev_did_not(target, fake_dev_by_uuid):
+    run_install(make_config(), target)
+    link = fake_dev_by_uuid / "DRY-RUN-UUID-OF-nvme0n1p2"
+    assert link.is_symlink() and link.readlink().as_posix() == "/dev/nvme0n1p2"
+
+
+def test_existing_uuid_link_is_kept(target, fake_dev_by_uuid):
+    fake_dev_by_uuid.mkdir()
+    (fake_dev_by_uuid / "DRY-RUN-UUID-OF-nvme0n1p2").symlink_to("../../nvme0n1p2")
+    runner, _, _ = run_install(make_config(), target)
+    assert (fake_dev_by_uuid / "DRY-RUN-UUID-OF-nvme0n1p2").readlink().as_posix() == "../../nvme0n1p2"
+    assert not any("creating it so GRUB" in line for line in runner.lines)
 
 
 def test_btrfs_subvolumes(target):

@@ -15,7 +15,7 @@ guest_services() {
 	case "$1" in
 		qemu) echo "qemu-guest-agent spice-vdagent" ;;
 		vmware) echo "vmware-tools vmtoolsd" ;;
-		hyperv) echo "hv_kvp_daemon hv_vss_daemon hv_fcopy_daemon hv_fcopy_uio_daemon" ;;
+		hyperv) echo "hv_kvp_daemon hv_vss_daemon hv_fcopy_uio_daemon" ;; # if installed; hv_utils does the rest
 		virtualbox) echo "virtualbox-guest-additions" ;;
 		xen) echo "xe-daemon" ;;
 	esac

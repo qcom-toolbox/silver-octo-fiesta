@@ -5,8 +5,8 @@
 app-emulation/qemu
 app-emulation/libvirt
 app-emulation/virt-manager
-# UEFI firmware (OVMF) and TPM 2.0 emulation for VMs, e.g. Windows 11 guests
-sys-firmware/edk2-bin | sys-firmware/edk2-ovmf-bin | sys-firmware/edk2-ovmf
+# TPM 2.0 emulation for VMs, e.g. Windows 11 guests. (UEFI firmware for VMs,
+# sys-firmware/edk2-bin, comes with QEMU in the exact version it needs.)
 app-crypt/swtpm
 # NAT networking of libvirt's "default" network
 net-dns/dnsmasq
