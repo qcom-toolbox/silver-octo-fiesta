@@ -9,6 +9,9 @@ x11-misc/sddm elogind -systemd
 media-video/pipewire sound-server extra
 
 # Kernel, initramfs and boot
+# -debug: no debug symbols (they make the kernel build several times bigger
+# and slower, and add a large debug vmlinux to the image)
+sys-kernel/gentoo-kernel -debug
 sys-kernel/installkernel dracut grub
 sys-kernel/linux-firmware compress-zstd initramfs
 sys-boot/grub mount

@@ -120,6 +120,10 @@ setup_portage() {
 		fi
 	done
 
+	# Written by setup_multilib later in the build (a previous --step check
+	# may have left one behind).
+	rm -f /etc/portage/package.use/30-multilib-32bit
+
 	cp "${SRC}/config/portage/make.conf.in" /etc/portage/make.conf
 	render_template /etc/portage/make.conf DISTRO_NAME EDITION CPU_DESC GPU_DESC CPU_CFLAGS CPU_RUST \
 		CPU_FLAGS_X86 JOBS EMERGE_JOBS VIDEO_CARDS
@@ -128,16 +132,24 @@ setup_portage() {
 	install -Dm644 "${SRC}/config/kernel/desktop.config" /etc/kernel/config.d/desktop.config
 
 	if ((BINHOST)); then
-		info "Enabling the official Gentoo x86-64-v3 binary package host"
+		# x86-64-v3 (AVX2) packages suit every tuned edition; "generic" uses the
+		# baseline x86-64 ones so the image still runs on any 64-bit CPU.
+		local binhost=${CPU_BINHOST:-x86-64-v3}
+		info "Enabling the official Gentoo ${binhost} binary package host"
+		# Only Gentoo's packages must be signed (verify-signature); the ones
+		# this build makes itself (FEATURES=buildpkg, for resuming) are not,
+		# so no global FEATURES=binpkg-request-signature.
 		mkdir -p /etc/portage/binrepos.conf
-		cat >/etc/portage/binrepos.conf/gentoobinhost.conf <<-EOF
-			[gentoobinhost]
+		rm -f /etc/portage/binrepos.conf/gentoobinhost.conf
+		cat >/etc/portage/binrepos.conf/gentoo.conf <<-EOF
+			[gentoo]
 			priority = 1
-			sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64-v3/
+			sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/${binhost}
+			location = /var/cache/binhost/gentoo
+			verify-signature = true
 		EOF
 		# shellcheck disable=SC2016 # ${FEATURES} is for make.conf, not this shell
-		sed -i '/^# END build-only/i FEATURES="${FEATURES} getbinpkg binpkg-request-signature"' \
-			/etc/portage/make.conf
+		sed -i '/^# END build-only/i FEATURES="${FEATURES} getbinpkg"' /etc/portage/make.conf
 	fi
 }
 

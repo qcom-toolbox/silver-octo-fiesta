@@ -128,7 +128,8 @@ steps, and you can run them separately with `--step`:
 Compiling everything from source takes many hours: roughly 5–10 h on a 5950X,
 7950X or 9950X, and a lot more on a 6-core CPU such as the 2600X. Useful options:
 
-- `--binhost` uses Gentoo's official **x86-64-v3** binary packages wherever
+- `--binhost` uses Gentoo's official binary packages (**x86-64-v3**, or
+  baseline **x86-64** for the `generic` edition) wherever
   they match. The build is much faster, but those packages are tuned less
   specifically for your CPU.
 - `--no-rebuild` does not recompile the stage3's existing packages. Only

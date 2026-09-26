@@ -35,8 +35,9 @@ Options:
                         "check" resolves the whole package plan against the current
                         Gentoo tree in minutes, without compiling (after "fetch")
   -j, --jobs <n>        Parallel compile jobs (default: $(nproc))
-      --binhost         Use Gentoo's official x86-64-v3 binary packages where
-                        possible (much faster build, less CPU-specific tuning)
+      --binhost         Use Gentoo's official binary packages where possible
+                        (x86-64-v3, or baseline x86-64 for "generic"): much
+                        faster build, less CPU-specific tuning
       --no-rebuild      Do not recompile the stage3 packages (@world) for the
                         selected CPU, only newly installed packages are tuned
       --work <dir>      Work directory (default: ./work)
