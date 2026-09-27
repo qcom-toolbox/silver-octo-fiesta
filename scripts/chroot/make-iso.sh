@@ -57,5 +57,20 @@ render_template "${TREE}/boot/grub/grub.cfg" DISTRO_NAME EDITION ISO_LABEL CPU_D
 cp "/usr/share/gentoo-desktop/edition.conf" "${TREE}/edition.conf"
 
 info "Creating the hybrid BIOS/UEFI ISO"
-grub-mkrescue -o "/mnt/gentoo-out/${ISO_NAME}" "${TREE}" -- -volid "${ISO_LABEL}"
+# The squashfs is larger than 4 GiB, the limit for one file in ISO 9660 at the
+# default level; level 3 stores it in several extents (Linux reads that fine).
+# grub-mkrescue runs "xorriso -as mkisofs <its args and our tree> -- <ours>",
+# so the level must go into the mkisofs part, through a small wrapper.
+xorriso_wrapper=$(mktemp)
+cat >"${xorriso_wrapper}" <<'WRAPPER'
+#!/bin/sh
+if [ "$1" = "-as" ] && [ "$2" = "mkisofs" ]; then
+	shift 2
+	exec xorriso -as mkisofs -iso-level 3 "$@"
+fi
+exec xorriso "$@"
+WRAPPER
+chmod 755 "${xorriso_wrapper}"
+grub-mkrescue --xorriso="${xorriso_wrapper}" -o "/mnt/gentoo-out/${ISO_NAME}" "${TREE}" -- -volid "${ISO_LABEL}"
+rm -f "${xorriso_wrapper}"
 info "ISO size: $(du -h "/mnt/gentoo-out/${ISO_NAME}" | cut -f1)"
