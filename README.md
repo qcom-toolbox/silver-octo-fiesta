@@ -392,8 +392,8 @@ installer/                  the Qt 6 installer (gentoo_installer package, launch
 
 ## What has been tested
 
-All the testing so far was done in a cloud sandbox without a real Gentoo
-compile. Here is what was verified for real:
+Testing was done in a cloud sandbox (4 vCPUs, no KVM, so QEMU ran in slow
+software emulation). Here is what was verified for real:
 
 - **Real stage3, real tree:**
   - `--step fetch` downloads the current stage3 and verifies its checksum
@@ -402,17 +402,29 @@ compile. Here is what was verified for real:
     (620-package stage3 rebuild, then 781 packages with 101 of them also in
     32-bit) and for `zen3-nvidia` (797 packages, 106 in 32-bit). This found
     and fixed about a dozen real problems.
-- **Real installs, booted in QEMU:** the installer ran for real (not
-  dry-run) onto virtual disks, using a small stand-in Linux as the system
-  being copied:
+- **Full build of `generic-mesa` with `--binhost`:** about 11 hours with
+  no package failures, giving a 5.8 GB ISO (kernel 6.18, Plasma 6.7).
+- **The real ISO, booted in QEMU (UEFI):** GRUB menu, then autologin to
+  Plasma on Wayland. The installer starts on its own and detects the CPU,
+  GPU, VM and firmware. All OpenRC services start (including `vm-guest` and
+  `libvirtd`), and zram swap is active.
+- **Install from the real ISO** onto a 30 GB virtual disk (UEFI, Btrfs,
+  snapshots, time zone Europe/Berlin) took about 37 minutes in emulation.
+  The installed disk then boots on its own: GRUB, OpenRC (45 services
+  started), then SDDM with the new user and the Plasma (Wayland) session.
+  After login, `sudo` asks for the user's password (the live session's
+  passwordless rule is gone), `/` is the Btrfs `@` subvolume, and Snapper
+  shows the "Fresh install" snapshot. Give the live session at least 8 GB
+  of RAM; with 4 GB it slowed to a crawl during the copy.
+- **Earlier installs** with a small stand-in system also passed:
   - Legacy BIOS + ext4: boots, the user logs in, `sudo` works, root is
     locked, the live user is removed, and GRUB uses `root=UUID=`.
-  - UEFI + Btrfs + LUKS2 + snapshots: the installer ran inside a UEFI VM.
-    The new disk boots with a *fresh* firmware through the fallback loader,
-    asks for the passphrase, and mounts all Btrfs subvolumes. `/boot` and
-    `/efi` are correct, and the German keymap is set.
-- **Not tested yet:** a complete compile of the desktop and a boot of the
-  real ISO. These need a real machine (many hours of compiling).
+  - UEFI + Btrfs + LUKS2 + snapshots: the new disk boots with a *fresh*
+    firmware through the fallback loader, asks for the passphrase, and
+    mounts all Btrfs subvolumes. `/boot` and `/efi` are correct, and the
+    German keymap is set.
+- **Not tested yet:** the NVIDIA and CPU-tuned editions on real hardware,
+  and ZFS or LUKS installs from the real ISO.
 
 ## Development
 
