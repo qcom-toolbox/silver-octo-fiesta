@@ -611,10 +611,15 @@ class InstallerWindow(QtWidgets.QMainWindow):
 
         nav = QtWidgets.QHBoxLayout()
         nav.setContentsMargins(24, 8, 24, 16)
-        self.cancel = QtWidgets.QPushButton("Cancel")
-        self.back = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("go-previous"), "Back")
-        self.next = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("go-next"), "Next")
+        self.cancel = QtWidgets.QPushButton("&Cancel")
+        self.back = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("go-previous"), "&Back")
+        self.next = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("go-next"), "&Next")
         self.next.setDefault(True)
+        # A default button only reacts to Enter inside a QDialog; this is a main
+        # window, so Enter/Return are wired to "Next"/"Install" explicitly.
+        for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            shortcut = QtGui.QShortcut(QtGui.QKeySequence(key), self)
+            shortcut.activated.connect(self._enter_pressed)
         nav.addWidget(self.cancel)
         nav.addStretch(1)
         nav.addWidget(self.back)
@@ -644,10 +649,14 @@ class InstallerWindow(QtWidgets.QMainWindow):
         self.back.setVisible(not final)
         self.back.setEnabled(index > 0)
         self.next.setVisible(not final)
-        self.next.setText("Install" if is_summary else "Next")
+        self.next.setText("&Install" if is_summary else "&Next")
         self.next.setIcon(QtGui.QIcon.fromTheme("run-install" if is_summary else "go-next"))
-        self.cancel.setText("Close" if isinstance(page, FinishPage) else "Cancel")
+        self.cancel.setText("C&lose" if isinstance(page, FinishPage) else "&Cancel")
         self.cancel.setEnabled(not isinstance(page, InstallPage))
+
+    def _enter_pressed(self):
+        if self.next.isVisible() and self.next.isEnabled():
+            self.next.click()
 
     def on_next(self):
         page = self.current()

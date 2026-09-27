@@ -1,0 +1,5 @@
+# Live session only (removed by the installer): never lock the screen, e.g.
+# while an installation runs. The live user has no password anyway.
+[Daemon]
+Autolock=false
+LockOnResume=false
