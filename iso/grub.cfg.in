@@ -8,6 +8,9 @@ insmod gfxterm
 insmod part_gpt
 insmod part_msdos
 insmod iso9660
+# The menu frame and arrows need a font with box-drawing characters in the
+# graphical terminal (without it they show as "?" boxes).
+loadfont unicode
 terminal_output gfxterm
 
 search --no-floppy --set=root --label @ISO_LABEL@
