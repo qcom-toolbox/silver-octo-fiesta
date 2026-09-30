@@ -15,7 +15,7 @@ A graphical installer puts it on your disk in a few clicks.
 | **Virtual machines** | Runs as a guest in QEMU/KVM, VMware, Hyper-V, VirtualBox and Xen (guest tools start automatically), and hosts VMs with QEMU/KVM + virt-manager and VirtualBox |
 | **Graphics** | NVIDIA RTX 3000/4000/5000 (open kernel modules), or AMD Radeon RX 6000–9000 / Intel Arc / integrated graphics (mesa) |
 | **Tools** | sudo, neofetch, fastfetch, hyfetch, screenfetch, htop, btop, atop, KDE Partition Manager, Konsole, Dolphin, Kate… |
-| **Installer** | Graphical Qt 6 wizard: automatic or manual (dual-boot) partitioning, Btrfs, ext4 or ZFS, automatic snapshots (Snapper / ZFS), optional encryption (LUKS2 / native ZFS), UEFI or BIOS |
+| **Installer** | Graphical Qt 6 wizard: automatic or manual (dual-boot) partitioning, Btrfs, ext4 or ZFS, automatic snapshots (Snapper / ZFS), optional encryption (LUKS2 / native ZFS), UEFI or legacy BIOS (chosen at build time with `--boot`) |
 
 > The distribution is called **Gentoo Linux**. It uses Gentoo's own
 > `/etc/os-release`, so neofetch and other tools show it as Gentoo.
@@ -123,7 +123,7 @@ steps, and you can run them separately with `--step`:
 |---|---|
 | `fetch` | Downloads the latest `stage3-amd64-desktop-openrc`, checks its SHA256 and GPG signature, and extracts it to `work/<edition>/rootfs` |
 | `build` | Inside the chroot: sets up Portage and the Plasma profile, recompiles `@world` with the edition's `-march`, then installs the kernel, drivers, Plasma, the applications and the installer, configures OpenRC services and creates the live user |
-| `iso` | Builds a dracut `dmsquash-live` initramfs, compresses the root filesystem with squashfs (zstd), and runs `grub-mkrescue` to make a hybrid BIOS/UEFI ISO |
+| `iso` | Builds a dracut `dmsquash-live` initramfs, compresses the root filesystem with squashfs (zstd), and runs `grub-mkrescue` to make the ISO (UEFI, legacy BIOS or both, see `--boot`) |
 
 Compiling everything from source takes many hours: roughly 5–10 h on a 5950X,
 7950X or 9950X, and a lot more on a 6-core CPU such as the 2600X. Useful options:
@@ -140,6 +140,14 @@ Compiling everything from source takes many hours: roughly 5–10 h on a 5950X,
   roughly an hour of compiling.
 - `--no-multilib` leaves out the 32-bit libraries (see below), which saves
   roughly 1–2 hours of compiling.
+- `--boot uefi|bios|both` picks the firmware the ISO and installed systems
+  boot with (default `both`). `uefi` suits every PC since about 2012 and
+  modern VMs; `bios` is for old machines without UEFI. GRUB is only built
+  for the chosen modes, and the installer refuses to install when the
+  computer was started in a mode the image does not support.
+- `--no-wifi` builds NetworkManager without Wi-Fi (wired network only).
+- `--no-bluetooth` leaves out Bluetooth: no BlueZ, no Bluetooth settings
+  in Plasma, and no Bluetooth audio in PipeWire.
 - Every compiled package is cached in `work/cache/binpkgs/<edition>`. If you
   re-run a build that failed or was interrupted, it continues where it
   stopped instead of starting over.
@@ -178,7 +186,8 @@ sudo dd if=out/gentoo-desktop-zen3-nvidia-*.iso of=/dev/sdX bs=4M status=progres
 ```
 
 The ISO also works with Ventoy, Fedora Media Writer and similar tools. It
-boots in UEFI and in legacy BIOS/CSM mode.
+boots in UEFI and in legacy BIOS/CSM mode, unless it was built with
+`--boot uefi` or `--boot bios`.
 
 **Disable Secure Boot.** The distribution kernel and the NVIDIA modules are
 not signed with Microsoft's keys.
@@ -241,8 +250,9 @@ the CPU type to host or use `generic`.
 Other VM tips:
 
 - **Hyper-V:** use a Generation 2 VM and turn off Secure Boot.
-- **VirtualBox:** enable EFI or keep BIOS; both work. Pick the *VMSVGA*
-  graphics controller for 3D.
+- **VirtualBox:** enable EFI (Settings → System → Enable EFI). Booting the
+  ISO in VirtualBox's default BIOS mode has failed with "grub relocator: out
+  of memory". Pick the *VMSVGA* graphics controller for 3D.
 - **QEMU:** for 3D, use `virtio-vga-gl` with `-display gtk,gl=on` or SPICE with OpenGL.
 
 ## Using the live system

@@ -99,6 +99,9 @@ class WelcomePage(Page):
         self.layout_.addWidget(box)
 
         self.confirm_incompatible = None
+        self.boot_error = system.boot_mode_error(ed, wizard.cfg.uefi)
+        if self.boot_error:
+            self.layout_.addWidget(_banner(self.boot_error, "error"))
         compat = system.cpu_compatibility(ed, cpu)
         if compat:
             severity, message = compat
@@ -126,6 +129,8 @@ class WelcomePage(Page):
         self.layout_.addStretch(1)
 
     def validate(self):
+        if self.boot_error:
+            return self.boot_error
         if self.confirm_incompatible is not None and not self.confirm_incompatible.isChecked():
             return ("This image does not match your processor. Download the edition for your "
                     "CPU, or tick the checkbox to install anyway.")

@@ -20,6 +20,20 @@ MARKERS=/var/lib/gentoo-desktop-build
 
 : "${JOBS:=$(nproc)}" "${BINHOST:=0}" "${REBUILD:=1}" "${BUILD_DATE:=$(date +%Y%m%d)}"
 : "${VM_HOST:=1}" "${MULTILIB:=1}" "${CHECK_ONLY:=0}"
+: "${BOOT:=both}" "${WIFI:=1}" "${BLUETOOTH:=1}"
+# GRUB_PLATFORMS and BLUETOOTH_USE go into make.conf through render_template.
+# shellcheck disable=SC2034
+case ${BOOT} in
+	uefi) GRUB_PLATFORMS="efi-64" ;;
+	bios) GRUB_PLATFORMS="pc" ;;
+	*) BOOT=both GRUB_PLATFORMS="efi-64 pc" ;;
+esac
+BLUETOOTH_USE=bluetooth
+# shellcheck disable=SC2034
+((BLUETOOTH)) || BLUETOOTH_USE=-bluetooth
+# Packages of the package lists left out by build.sh --no-wifi/--no-bluetooth.
+EXCLUDED_PKGS=()
+((BLUETOOTH)) || EXCLUDED_PKGS+=(net-wireless/bluez kde-plasma/bluedevil)
 EMERGE_JOBS=2
 ((JOBS >= 12)) && EMERGE_JOBS=3
 ((JOBS >= 24)) && EMERGE_JOBS=4
@@ -67,11 +81,30 @@ add_service() { # <service> <runlevel>
 	fi
 }
 
+# True if every alternative of a package list line is in EXCLUDED_PKGS.
+is_excluded() {
+	local alt ex hit
+	local -a alts
+	IFS='|' read -r -a alts <<<"$1"
+	for alt in "${alts[@]}"; do
+		alt=$(echo "${alt}" | xargs)
+		hit=0
+		for ex in "${EXCLUDED_PKGS[@]}"; do
+			[[ ${alt} == "${ex}" ]] && hit=1
+		done
+		((hit)) || return 1
+	done
+	return 0
+}
+
 # Print the packages of a list file, one per line. "a | b" means: the first of
 # a, b that exists in the tree. Missing packages only warn.
 resolve_list() {
 	local line alt found
 	while IFS= read -r line; do
+		if is_excluded "${line}"; then
+			continue
+		fi
 		found=
 		IFS='|' read -r -a alts <<<"${line}"
 		for alt in "${alts[@]}"; do
@@ -124,9 +157,18 @@ setup_portage() {
 	# may have left one behind).
 	rm -f /etc/portage/package.use/30-multilib-32bit
 
+	# build.sh --no-wifi / --no-bluetooth
+	local ex opts=/etc/portage/package.use/40-build-options
+	: >"${opts}"
+	((WIFI)) || echo "net-misc/networkmanager -wifi -wext" >>"${opts}"
+	((BLUETOOTH)) || echo "kde-plasma/plasma-meta -bluetooth" >>"${opts}"
+	for ex in "${EXCLUDED_PKGS[@]}"; do
+		sed -i "\|^${ex}\$|d" /etc/portage/sets/*
+	done
+
 	cp "${SRC}/config/portage/make.conf.in" /etc/portage/make.conf
 	render_template /etc/portage/make.conf DISTRO_NAME EDITION CPU_DESC GPU_DESC CPU_CFLAGS CPU_RUST \
-		CPU_FLAGS_X86 JOBS EMERGE_JOBS VIDEO_CARDS
+		CPU_FLAGS_X86 JOBS EMERGE_JOBS VIDEO_CARDS GRUB_PLATFORMS BLUETOOTH_USE
 
 	# Kernel config fragment, merged by sys-kernel/gentoo-kernel.
 	install -Dm644 "${SRC}/config/kernel/desktop.config" /etc/kernel/config.d/desktop.config
@@ -324,6 +366,11 @@ build_world() {
 		setup_multilib
 	fi
 
+	# Left out with --no-bluetooth: forget them if an earlier build installed
+	# them, so --depclean removes them.
+	if ((${#EXCLUDED_PKGS[@]})); then
+		emerge --deselect "${EXCLUDED_PKGS[@]}" || true
+	fi
 	emerge --update --deep --newuse @world
 	emerge --depclean
 
@@ -370,6 +417,9 @@ install_files() {
 		GPU_DESC="${GPU_DESC}"
 		BUILD_DATE="${BUILD_DATE}"
 		LIVE_USER="${LIVE_USER}"
+		BOOT_MODES="${BOOT}"
+		WIFI="${WIFI}"
+		BLUETOOTH="${BLUETOOTH}"
 	EOF
 }
 
@@ -380,9 +430,14 @@ setup_system() {
 	local s
 	# vm-guest starts QEMU/VMware/Hyper-V/VirtualBox/Xen guest tools when
 	# running in that hypervisor; those services are not added themselves.
-	for s in dbus NetworkManager display-manager bluetooth cupsd avahi-daemon chronyd sysklogd cronie vm-guest; do
+	for s in dbus NetworkManager display-manager cupsd avahi-daemon chronyd sysklogd cronie vm-guest; do
 		add_service "${s}" default
 	done
+	if ((BLUETOOTH)); then
+		add_service bluetooth default
+	else
+		rc-update del bluetooth default >/dev/null 2>&1 || true
+	fi
 	if ((VM_HOST)) && [[ -e /etc/init.d/libvirtd ]]; then
 		add_service libvirtd default
 		# Start libvirt's NAT network "default" with the daemon, so new VMs

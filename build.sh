@@ -46,6 +46,12 @@ Options:
       --no-vm-host      Leave out QEMU/virt-manager and VirtualBox (shorter build)
       --no-multilib     Leave out the 32-bit libraries (for Steam, Wine/Proton and
                         other 32-bit programs); saves roughly 1-2 hours
+      --boot <mode>     Firmware the ISO and installed systems boot with:
+                          uefi: UEFI only (all PCs since about 2012)
+                          bios: legacy BIOS / CSM only
+                          both: UEFI and legacy BIOS (default)
+      --no-wifi         Leave out Wi-Fi support (wired network only)
+      --no-bluetooth    Leave out Bluetooth support
       --nice            Build at the lowest CPU and disk priority so the computer
                         stays usable while it runs
       --force           Build even if this machine cannot run the edition's code
@@ -65,6 +71,7 @@ EOF
 
 CPU="" GPU="nvidia" JOBS=$(nproc) WORK="${TOP}/work" OUT="${TOP}/out"
 STEPS="fetch,build,iso" BINHOST=0 REBUILD=1 FORCE=0 CLEAN=0 NO_GPG=0 VM_HOST=1 MULTILIB=1 NICE=0
+BOOT="both" WIFI=1 BLUETOOTH=1
 CONTROL=""
 ORIG_ARGS=("$@")
 
@@ -83,6 +90,9 @@ while [[ $# -gt 0 ]]; do
 		--clean) CLEAN=1 ;;
 		--no-vm-host) VM_HOST=0 ;;
 		--no-multilib) MULTILIB=0 ;;
+		--boot) BOOT=${2:?}; shift ;;
+		--no-wifi) WIFI=0 ;;
+		--no-bluetooth) BLUETOOTH=0 ;;
 		--nice) NICE=1 ;;
 		--pause | --continue | --resume | --stop | --status) CONTROL=${1#--} ;;
 		-h | --help) usage; exit 0 ;;
@@ -92,6 +102,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n ${CPU} ]] || { usage >&2; die "--cpu is required"; }
+[[ ${BOOT} == uefi || ${BOOT} == bios || ${BOOT} == both ]] || die "--boot must be uefi, bios or both"
 
 # "all" builds every combination by re-running this script once per edition.
 if [[ ${CPU} == all || ${GPU} == all ]]; then
@@ -382,6 +393,7 @@ run_chroot() {
 		PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 		CPU="${CPU}" GPU="${GPU}" EDITION="${EDITION}" JOBS="${JOBS}" \
 		BINHOST="${BINHOST}" REBUILD="${REBUILD}" BUILD_DATE="${BUILD_DATE}" VM_HOST="${VM_HOST}" MULTILIB="${MULTILIB}" \
+		BOOT="${BOOT}" WIFI="${WIFI}" BLUETOOTH="${BLUETOOTH}" \
 		CHECK_ONLY="${CHECK_ONLY:-0}" "${proxy[@]}" \
 		ISO_NAME="${ISO_NAME}" ISO_LABEL="${ISO_LABEL}" \
 		/bin/bash "$@"

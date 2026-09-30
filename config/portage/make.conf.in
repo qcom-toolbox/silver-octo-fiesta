@@ -21,10 +21,11 @@ INPUT_DEVICES="libinput"
 # QEMU (virt-manager): only emulate PCs, not every architecture
 QEMU_SOFTMMU_TARGETS="x86_64 i386"
 QEMU_USER_TARGETS=""
-GRUB_PLATFORMS="efi-64 pc"
+# UEFI and/or legacy BIOS, from build.sh --boot
+GRUB_PLATFORMS="@GRUB_PLATFORMS@"
 
 # Full Wayland Plasma desktop on OpenRC.
-USE="dist-kernel wayland pipewire screencast vaapi vulkan networkmanager bluetooth elogind -systemd flatpak zstd"
+USE="dist-kernel wayland pipewire screencast vaapi vulkan networkmanager @BLUETOOTH_USE@ elogind -systemd flatpak zstd"
 
 ACCEPT_LICENSE="-* @FREE @BINARY-REDISTRIBUTABLE"
 

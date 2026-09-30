@@ -1,6 +1,6 @@
 #!/bin/bash
 # Runs INSIDE the chroot (started by build.sh): builds the live initramfs,
-# the compressed root filesystem and the hybrid BIOS/UEFI ISO.
+# the compressed root filesystem and the ISO (UEFI, legacy BIOS or both).
 #   /mnt/livesrc  read-only, non-recursive bind mount of the finished rootfs
 #   /mnt/isotree  empty directory that becomes the ISO contents
 #   /mnt/gentoo-out  output directory
@@ -56,7 +56,17 @@ cp "${SRC}/iso/grub.cfg.in" "${TREE}/boot/grub/grub.cfg"
 render_template "${TREE}/boot/grub/grub.cfg" DISTRO_NAME EDITION ISO_LABEL CPU_DESC_SHORT GPU_DESC_SHORT
 cp "/usr/share/gentoo-desktop/edition.conf" "${TREE}/edition.conf"
 
-info "Creating the hybrid BIOS/UEFI ISO"
+# build.sh --boot: grub-mkrescue puts every installed GRUB platform on the ISO;
+# -d limits it to one.
+case ${BOOT:-both} in
+	uefi) mkrescue_platform=(-d /usr/lib/grub/x86_64-efi) boot_desc="UEFI" ;;
+	bios) mkrescue_platform=(-d /usr/lib/grub/i386-pc) boot_desc="legacy BIOS" ;;
+	*) mkrescue_platform=() boot_desc="hybrid UEFI + legacy BIOS" ;;
+esac
+for d in "${mkrescue_platform[@]:1}"; do
+	[[ -d ${d} ]] || die "GRUB for ${boot_desc} is not installed (${d})"
+done
+info "Creating the ${boot_desc} ISO"
 # The squashfs is larger than 4 GiB, the limit for one file in ISO 9660 at the
 # default level; level 3 stores it in several extents (Linux reads that fine).
 # grub-mkrescue runs "xorriso -as mkisofs <its args and our tree> -- <ours>",
@@ -71,6 +81,6 @@ fi
 exec xorriso "$@"
 WRAPPER
 chmod 755 "${xorriso_wrapper}"
-grub-mkrescue --xorriso="${xorriso_wrapper}" -o "/mnt/gentoo-out/${ISO_NAME}" "${TREE}" -- -volid "${ISO_LABEL}"
+grub-mkrescue "${mkrescue_platform[@]}" --xorriso="${xorriso_wrapper}" -o "/mnt/gentoo-out/${ISO_NAME}" "${TREE}" -- -volid "${ISO_LABEL}"
 rm -f "${xorriso_wrapper}"
 info "ISO size: $(du -h "/mnt/gentoo-out/${ISO_NAME}" | cut -f1)"

@@ -312,6 +312,27 @@ def test_invalid_disk_setup_is_rejected(target, overrides):
     assert not any(c[0] in ("wipefs", "sfdisk", "cryptsetup", "zpool") for c in runner.commands)
 
 
+@pytest.mark.parametrize("modes,uefi", [("uefi", False), ("bios", True)])
+def test_unsupported_boot_mode_is_rejected(target, modes, uefi):
+    root, listing = target
+    runner = FakeRunner()
+    inst = backend.Installer(make_config(uefi=uefi), runner, edition={**EDITION, "BOOT_MODES": modes},
+                             target=str(root), live_files=str(listing))
+    with pytest.raises(backend.InstallError, match="only supports"):
+        inst.run()
+    assert not any(c[0] in ("wipefs", "sfdisk") for c in runner.commands)
+
+
+@pytest.mark.parametrize("modes,uefi,ok", [
+    ("both", True, True), ("both", False, True), ("uefi", True, True),
+    ("uefi", False, False), ("bios", False, True), ("bios", True, False),
+])
+def test_boot_mode_error(modes, uefi, ok):
+    assert (system.boot_mode_error({"BOOT_MODES": modes}, uefi) is None) == ok
+    # Images built before --boot existed support both modes.
+    assert system.boot_mode_error({}, uefi) is None
+
+
 def test_dry_run_logs_only(tmp_path, capsys):
     lines = []
     runner = backend.Runner(dry_run=True, log=lines.append)

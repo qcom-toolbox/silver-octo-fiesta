@@ -436,6 +436,9 @@ class Installer:
                     validate_password(c.password, c.password)):
             if err:
                 raise InstallError(err)
+        err = system.boot_mode_error(self.edition, c.uefi)
+        if err:
+            raise InstallError(err)
         if c.filesystem not in FILESYSTEMS:
             raise InstallError(f"Unsupported file system {c.filesystem}")
         if c.filesystem == "zfs" and c.mode != "erase":

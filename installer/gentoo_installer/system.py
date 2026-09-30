@@ -36,6 +36,7 @@ def read_edition(path: str = EDITION_FILE) -> dict[str, str]:
         "GPU_ID": "",
         "GPU_DESC": "",
         "LIVE_USER": "live",
+        "BOOT_MODES": "both",
     }
     try:
         text = Path(path).read_text()
@@ -123,6 +124,22 @@ def recommended_cpu_edition(cpu: CpuInfo) -> str | None:
             return "zen4" if "avx512f" in cpu.flags else "zen3"
         if cpu.family == 23:
             return "zenplus"
+    return None
+
+
+def boot_mode_error(edition: dict[str, str], uefi: bool) -> str | None:
+    """Why this image cannot be installed in the current boot mode, if it cannot.
+
+    The build (build.sh --boot) includes GRUB for UEFI, legacy BIOS or both.
+    """
+    modes = edition.get("BOOT_MODES", "both")
+    if modes == "uefi" and not uefi:
+        return ("This computer was started in legacy BIOS mode, but this image only supports "
+                "UEFI. Switch the firmware (or the virtual machine) to UEFI mode and start "
+                "the live system again.")
+    if modes == "bios" and uefi:
+        return ("This computer was started in UEFI mode, but this image only supports legacy "
+                "BIOS. Enable legacy/CSM boot in the firmware and start the live system again.")
     return None
 
 
