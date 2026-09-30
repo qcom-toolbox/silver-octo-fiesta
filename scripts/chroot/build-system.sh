@@ -20,8 +20,9 @@ MARKERS=/var/lib/gentoo-desktop-build
 
 : "${JOBS:=$(nproc)}" "${BINHOST:=0}" "${REBUILD:=1}" "${BUILD_DATE:=$(date +%Y%m%d)}"
 : "${VM_HOST:=1}" "${MULTILIB:=1}" "${CHECK_ONLY:=0}"
-: "${BOOT:=both}" "${WIFI:=1}" "${BLUETOOTH:=1}" "${GUEST_ADDITIONS:=0}" "${GUEST_TOOLS:=1}"
-# GRUB_PLATFORMS and BLUETOOTH_USE go into make.conf through render_template.
+: "${BOOT:=both}" "${WIFI:=1}" "${BLUETOOTH:=1}" "${GUEST_ADDITIONS:=0}" "${GUEST_TOOLS:=1}" "${PRINTING:=1}"
+# GRUB_PLATFORMS, BLUETOOTH_USE and PRINTING_USE go into make.conf through
+# render_template.
 # shellcheck disable=SC2034
 case ${BOOT} in
 	uefi) GRUB_PLATFORMS="efi-64" ;;
@@ -31,14 +32,18 @@ esac
 BLUETOOTH_USE=bluetooth
 # shellcheck disable=SC2034
 ((BLUETOOTH)) || BLUETOOTH_USE=-bluetooth
+PRINTING_USE=cups
+# shellcheck disable=SC2034
+((PRINTING)) || PRINTING_USE=-cups
 # Packages left out of the image: ones no longer part of it (the VirtualBox
 # host; deselected so rebuilds of an older build remove them), the ones left
-# out by build.sh --no-bluetooth and --no-guest-tools, and the VirtualBox
+# out by build.sh --no-bluetooth, --no-guest-tools and --no-printing, and the VirtualBox
 # Guest Additions unless build.sh --guest-additions.
 EXCLUDED_PKGS=(app-emulation/virtualbox app-emulation/virtualbox-modules)
 ((BLUETOOTH)) || EXCLUDED_PKGS+=(net-wireless/bluez kde-plasma/bluedevil)
 ((GUEST_ADDITIONS)) || EXCLUDED_PKGS+=(app-emulation/virtualbox-guest-additions)
 ((GUEST_TOOLS)) || EXCLUDED_PKGS+=(app-emulation/qemu-guest-agent app-emulation/spice-vdagent app-emulation/open-vm-tools)
+((PRINTING)) || EXCLUDED_PKGS+=(net-print/cups kde-plasma/print-manager kde-apps/print-manager)
 EMERGE_JOBS=2
 ((JOBS >= 12)) && EMERGE_JOBS=3
 ((JOBS >= 24)) && EMERGE_JOBS=4
@@ -173,7 +178,7 @@ setup_portage() {
 
 	cp "${SRC}/config/portage/make.conf.in" /etc/portage/make.conf
 	render_template /etc/portage/make.conf DISTRO_NAME EDITION CPU_DESC GPU_DESC CPU_CFLAGS CPU_RUST \
-		CPU_FLAGS_X86 JOBS EMERGE_JOBS VIDEO_CARDS GRUB_PLATFORMS BLUETOOTH_USE
+		CPU_FLAGS_X86 JOBS EMERGE_JOBS VIDEO_CARDS GRUB_PLATFORMS BLUETOOTH_USE PRINTING_USE
 
 	# Kernel config fragment, merged by sys-kernel/gentoo-kernel.
 	install -Dm644 "${SRC}/config/kernel/desktop.config" /etc/kernel/config.d/desktop.config
@@ -428,6 +433,7 @@ install_files() {
 		BLUETOOTH="${BLUETOOTH}"
 		GUEST_TOOLS="${GUEST_TOOLS}"
 		GUEST_ADDITIONS="${GUEST_ADDITIONS}"
+		PRINTING="${PRINTING}"
 	EOF
 }
 
@@ -438,9 +444,14 @@ setup_system() {
 	local s
 	# vm-guest starts QEMU/VMware/Hyper-V/VirtualBox/Xen guest tools when
 	# running in that hypervisor; those services are not added themselves.
-	for s in dbus NetworkManager display-manager cupsd avahi-daemon chronyd sysklogd cronie; do
+	for s in dbus NetworkManager display-manager avahi-daemon chronyd sysklogd cronie; do
 		add_service "${s}" default
 	done
+	if ((PRINTING)); then
+		add_service cupsd default
+	else
+		rc-update del cupsd default >/dev/null 2>&1 || true
+	fi
 	# Nothing for vm-guest to start without any guest tools.
 	if ((GUEST_TOOLS || GUEST_ADDITIONS)); then
 		add_service vm-guest default

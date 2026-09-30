@@ -154,6 +154,8 @@ Compiling everything from source takes many hours: roughly 5–10 h on a 5950X,
   (`qemu-guest-agent`, `spice-vdagent`, `open-vm-tools`). The image still
   runs in those VMs (the drivers are in the kernel), but without the shared
   clipboard, automatic screen resizing or clean shutdown from the host.
+- `--no-printing` leaves out printer support: no CUPS print service, no
+  printer settings in Plasma, and programs are built with `USE=-cups`.
 - Every compiled package is cached in `work/cache/binpkgs/<edition>`. If you
   re-run a build that failed or was interrupted, it continues where it
   stopped instead of starting over.
