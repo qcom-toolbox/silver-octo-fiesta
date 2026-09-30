@@ -538,11 +538,14 @@ class FinishPage(Page):
         name = self.wizard.edition["DISTRO_NAME"]
         if ok:
             self.heading.setText("All done!")
+            if self.wizard.edition.get("FLATPAK", "1") == "1":
+                apps = ("<li><tt>gentoo-update</tt> updates everything (packages and Flatpak apps).</li>"
+                        "<li>Discover installs apps like Steam or Discord from Flathub.</li>")
+            else:
+                apps = "<li><tt>gentoo-update</tt> updates everything.</li>"
             self.text.setText(
                 f"{name} has been installed. Restart the computer and remove the USB stick.<br><br>"
-                "Tips for the new system:<ul>"
-                "<li><tt>gentoo-update</tt> updates everything (packages and Flatpak apps).</li>"
-                "<li>Discover installs apps like Steam or Discord from Flathub.</li>"
+                f"Tips for the new system:<ul>{apps}"
                 "<li><tt>neofetch</tt> and <tt>htop</tt> are ready in Konsole.</li></ul>")
             self.reboot.setVisible(True)
         else:

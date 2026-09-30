@@ -156,6 +156,9 @@ Compiling everything from source takes many hours: roughly 5–10 h on a 5950X,
   clipboard, automatic screen resizing or clean shutdown from the host.
 - `--no-printing` leaves out printer support: no CUPS print service, no
   printer settings in Plasma, and programs are built with `USE=-cups`.
+- `--no-flatpak` leaves out Flatpak and the Flathub remote. Discover then
+  has no Flatpak apps (e.g. Steam or Discord from Flathub); install software
+  with `emerge` instead.
 - Every compiled package is cached in `work/cache/binpkgs/<edition>`. If you
   re-run a build that failed or was interrupted, it continues where it
   stopped instead of starting over.
@@ -341,7 +344,7 @@ cd installer && python3 -m gentoo_installer --dry-run
 - `gentoo-update`: syncs Portage, updates `@world` and `--depclean`s, runs
   `dispatch-conf` and updates Flatpak apps.
 - **Discover** installs Flatpak apps from Flathub, such as Steam, Discord or
-  OBS. The system already has `vm.max_map_count` raised for games.
+  OBS (unless built with `--no-flatpak`). The system already has `vm.max_map_count` raised for games.
 - **32-bit programs work.** Steam, Wine/Proton, Lutris and older games need
   32-bit versions of many libraries. The system has them (unless built with
   `--no-multilib`):

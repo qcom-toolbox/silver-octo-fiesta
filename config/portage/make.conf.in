@@ -25,7 +25,7 @@ QEMU_USER_TARGETS=""
 GRUB_PLATFORMS="@GRUB_PLATFORMS@"
 
 # Full Wayland Plasma desktop on OpenRC.
-USE="dist-kernel wayland pipewire screencast vaapi vulkan networkmanager @BLUETOOTH_USE@ @PRINTING_USE@ elogind -systemd flatpak zstd"
+USE="dist-kernel wayland pipewire screencast vaapi vulkan networkmanager @BLUETOOTH_USE@ @PRINTING_USE@ elogind -systemd @FLATPAK_USE@ zstd"
 
 ACCEPT_LICENSE="-* @FREE @BINARY-REDISTRIBUTABLE"
 

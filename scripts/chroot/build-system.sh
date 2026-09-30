@@ -20,9 +20,8 @@ MARKERS=/var/lib/gentoo-desktop-build
 
 : "${JOBS:=$(nproc)}" "${BINHOST:=0}" "${REBUILD:=1}" "${BUILD_DATE:=$(date +%Y%m%d)}"
 : "${VM_HOST:=1}" "${MULTILIB:=1}" "${CHECK_ONLY:=0}"
-: "${BOOT:=both}" "${WIFI:=1}" "${BLUETOOTH:=1}" "${GUEST_ADDITIONS:=0}" "${GUEST_TOOLS:=1}" "${PRINTING:=1}"
-# GRUB_PLATFORMS, BLUETOOTH_USE and PRINTING_USE go into make.conf through
-# render_template.
+: "${BOOT:=both}" "${WIFI:=1}" "${BLUETOOTH:=1}" "${GUEST_ADDITIONS:=0}" "${GUEST_TOOLS:=1}" "${PRINTING:=1}" "${FLATPAK:=1}"
+# GRUB_PLATFORMS and the *_USE flags go into make.conf through render_template.
 # shellcheck disable=SC2034
 case ${BOOT} in
 	uefi) GRUB_PLATFORMS="efi-64" ;;
@@ -35,15 +34,20 @@ BLUETOOTH_USE=bluetooth
 PRINTING_USE=cups
 # shellcheck disable=SC2034
 ((PRINTING)) || PRINTING_USE=-cups
+FLATPAK_USE=flatpak
+# shellcheck disable=SC2034
+((FLATPAK)) || FLATPAK_USE=-flatpak
 # Packages left out of the image: ones no longer part of it (the VirtualBox
 # host; deselected so rebuilds of an older build remove them), the ones left
-# out by build.sh --no-bluetooth, --no-guest-tools and --no-printing, and the VirtualBox
+# out by build.sh --no-bluetooth, --no-guest-tools, --no-printing and
+# --no-flatpak, and the VirtualBox
 # Guest Additions unless build.sh --guest-additions.
 EXCLUDED_PKGS=(app-emulation/virtualbox app-emulation/virtualbox-modules)
 ((BLUETOOTH)) || EXCLUDED_PKGS+=(net-wireless/bluez kde-plasma/bluedevil)
 ((GUEST_ADDITIONS)) || EXCLUDED_PKGS+=(app-emulation/virtualbox-guest-additions)
 ((GUEST_TOOLS)) || EXCLUDED_PKGS+=(app-emulation/qemu-guest-agent app-emulation/spice-vdagent app-emulation/open-vm-tools)
 ((PRINTING)) || EXCLUDED_PKGS+=(net-print/cups kde-plasma/print-manager kde-apps/print-manager)
+((FLATPAK)) || EXCLUDED_PKGS+=(sys-apps/flatpak)
 EMERGE_JOBS=2
 ((JOBS >= 12)) && EMERGE_JOBS=3
 ((JOBS >= 24)) && EMERGE_JOBS=4
@@ -172,13 +176,14 @@ setup_portage() {
 	: >"${opts}"
 	((WIFI)) || echo "net-misc/networkmanager -wifi -wext" >>"${opts}"
 	((BLUETOOTH)) || echo "kde-plasma/plasma-meta -bluetooth" >>"${opts}"
+	((FLATPAK)) || printf '%s\n' "kde-plasma/plasma-meta -flatpak" "kde-plasma/discover -flatpak" >>"${opts}"
 	for ex in "${EXCLUDED_PKGS[@]}"; do
 		sed -i "\|^${ex}\$|d" /etc/portage/sets/*
 	done
 
 	cp "${SRC}/config/portage/make.conf.in" /etc/portage/make.conf
 	render_template /etc/portage/make.conf DISTRO_NAME EDITION CPU_DESC GPU_DESC CPU_CFLAGS CPU_RUST \
-		CPU_FLAGS_X86 JOBS EMERGE_JOBS VIDEO_CARDS GRUB_PLATFORMS BLUETOOTH_USE PRINTING_USE
+		CPU_FLAGS_X86 JOBS EMERGE_JOBS VIDEO_CARDS GRUB_PLATFORMS BLUETOOTH_USE PRINTING_USE FLATPAK_USE
 
 	# Kernel config fragment, merged by sys-kernel/gentoo-kernel.
 	install -Dm644 "${SRC}/config/kernel/desktop.config" /etc/kernel/config.d/desktop.config
@@ -434,6 +439,7 @@ install_files() {
 		GUEST_TOOLS="${GUEST_TOOLS}"
 		GUEST_ADDITIONS="${GUEST_ADDITIONS}"
 		PRINTING="${PRINTING}"
+		FLATPAK="${FLATPAK}"
 	EOF
 }
 
@@ -479,9 +485,11 @@ setup_system() {
 	echo 'UTC' >/etc/timezone
 	ln -sf ../usr/share/zoneinfo/UTC /etc/localtime
 
-	if command -v flatpak >/dev/null; then
+	if ((FLATPAK)) && command -v flatpak >/dev/null; then
 		flatpak remote-add --system --if-not-exists flathub \
 			https://dl.flathub.org/repo/flathub.flatpakrepo || warn "Could not add the Flathub remote"
+	elif ! ((FLATPAK)); then
+		rm -rf /var/lib/flatpak # Flathub remote of an earlier build
 	fi
 }
 

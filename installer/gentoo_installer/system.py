@@ -39,6 +39,7 @@ def read_edition(path: str = EDITION_FILE) -> dict[str, str]:
         "BOOT_MODES": "both",
         "GUEST_TOOLS": "1",
         "GUEST_ADDITIONS": "1",
+        "FLATPAK": "1",
     }
     try:
         text = Path(path).read_text()
