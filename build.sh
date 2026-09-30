@@ -54,6 +54,8 @@ Options:
       --no-bluetooth    Leave out Bluetooth support
       --guest-additions Include the VirtualBox Guest Additions (shared clipboard
                         and folders when the image runs in VirtualBox)
+      --no-guest-tools  Leave out the QEMU and VMware guest tools
+                        (qemu-guest-agent, spice-vdagent, open-vm-tools)
       --nice            Build at the lowest CPU and disk priority so the computer
                         stays usable while it runs
       --force           Build even if this machine cannot run the edition's code
@@ -73,7 +75,7 @@ EOF
 
 CPU="" GPU="nvidia" JOBS=$(nproc) WORK="${TOP}/work" OUT="${TOP}/out"
 STEPS="fetch,build,iso" BINHOST=0 REBUILD=1 FORCE=0 CLEAN=0 NO_GPG=0 VM_HOST=1 MULTILIB=1 NICE=0
-BOOT="both" WIFI=1 BLUETOOTH=1 GUEST_ADDITIONS=0
+BOOT="both" WIFI=1 BLUETOOTH=1 GUEST_ADDITIONS=0 GUEST_TOOLS=1
 CONTROL=""
 ORIG_ARGS=("$@")
 
@@ -96,6 +98,7 @@ while [[ $# -gt 0 ]]; do
 		--no-wifi) WIFI=0 ;;
 		--no-bluetooth) BLUETOOTH=0 ;;
 		--guest-additions) GUEST_ADDITIONS=1 ;;
+		--no-guest-tools) GUEST_TOOLS=0 ;;
 		--nice) NICE=1 ;;
 		--pause | --continue | --resume | --stop | --status) CONTROL=${1#--} ;;
 		-h | --help) usage; exit 0 ;;
@@ -396,7 +399,7 @@ run_chroot() {
 		PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 		CPU="${CPU}" GPU="${GPU}" EDITION="${EDITION}" JOBS="${JOBS}" \
 		BINHOST="${BINHOST}" REBUILD="${REBUILD}" BUILD_DATE="${BUILD_DATE}" VM_HOST="${VM_HOST}" MULTILIB="${MULTILIB}" \
-		BOOT="${BOOT}" WIFI="${WIFI}" BLUETOOTH="${BLUETOOTH}" GUEST_ADDITIONS="${GUEST_ADDITIONS}" \
+		BOOT="${BOOT}" WIFI="${WIFI}" BLUETOOTH="${BLUETOOTH}" GUEST_ADDITIONS="${GUEST_ADDITIONS}" GUEST_TOOLS="${GUEST_TOOLS}" \
 		CHECK_ONLY="${CHECK_ONLY:-0}" "${proxy[@]}" \
 		ISO_NAME="${ISO_NAME}" ISO_LABEL="${ISO_LABEL}" \
 		/bin/bash "$@"

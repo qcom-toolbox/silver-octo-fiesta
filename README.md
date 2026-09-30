@@ -150,6 +150,10 @@ Compiling everything from source takes many hours: roughly 5–10 h on a 5950X,
 - `--guest-additions` includes the VirtualBox Guest Additions (shared
   clipboard and shared folders in VirtualBox). They are left out by default;
   the image still runs in VirtualBox without them.
+- `--no-guest-tools` leaves out the QEMU and VMware guest tools
+  (`qemu-guest-agent`, `spice-vdagent`, `open-vm-tools`). The image still
+  runs in those VMs (the drivers are in the kernel), but without the shared
+  clipboard, automatic screen resizing or clean shutdown from the host.
 - Every compiled package is cached in `work/cache/binpkgs/<edition>`. If you
   re-run a build that failed or was interrupted, it continues where it
   stopped instead of starting over.
@@ -202,7 +206,8 @@ VMXNET3), Hyper-V (synthetic disk, network, video and input), VirtualBox
 (VMSVGA, shared folders) and Xen (HVM/PVH front-end drivers). Mesa includes
 the virgl and VMware SVGA 3D drivers.
 
-The guest tools are installed (the VirtualBox Guest Additions only with
+The guest tools are installed (the QEMU and VMware ones unless built with
+`--no-guest-tools`, the VirtualBox Guest Additions only with
 `--guest-additions`). At boot, the `vm-guest` service runs
 `gentoo-vm-detect` and starts only the tools that match the hypervisor. On
 real hardware it starts nothing.

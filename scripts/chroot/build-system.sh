@@ -20,7 +20,7 @@ MARKERS=/var/lib/gentoo-desktop-build
 
 : "${JOBS:=$(nproc)}" "${BINHOST:=0}" "${REBUILD:=1}" "${BUILD_DATE:=$(date +%Y%m%d)}"
 : "${VM_HOST:=1}" "${MULTILIB:=1}" "${CHECK_ONLY:=0}"
-: "${BOOT:=both}" "${WIFI:=1}" "${BLUETOOTH:=1}" "${GUEST_ADDITIONS:=0}"
+: "${BOOT:=both}" "${WIFI:=1}" "${BLUETOOTH:=1}" "${GUEST_ADDITIONS:=0}" "${GUEST_TOOLS:=1}"
 # GRUB_PLATFORMS and BLUETOOTH_USE go into make.conf through render_template.
 # shellcheck disable=SC2034
 case ${BOOT} in
@@ -33,11 +33,12 @@ BLUETOOTH_USE=bluetooth
 ((BLUETOOTH)) || BLUETOOTH_USE=-bluetooth
 # Packages left out of the image: ones no longer part of it (the VirtualBox
 # host; deselected so rebuilds of an older build remove them), the ones left
-# out by build.sh --no-bluetooth, and the VirtualBox Guest Additions unless
-# build.sh --guest-additions.
+# out by build.sh --no-bluetooth and --no-guest-tools, and the VirtualBox
+# Guest Additions unless build.sh --guest-additions.
 EXCLUDED_PKGS=(app-emulation/virtualbox app-emulation/virtualbox-modules)
 ((BLUETOOTH)) || EXCLUDED_PKGS+=(net-wireless/bluez kde-plasma/bluedevil)
 ((GUEST_ADDITIONS)) || EXCLUDED_PKGS+=(app-emulation/virtualbox-guest-additions)
+((GUEST_TOOLS)) || EXCLUDED_PKGS+=(app-emulation/qemu-guest-agent app-emulation/spice-vdagent app-emulation/open-vm-tools)
 EMERGE_JOBS=2
 ((JOBS >= 12)) && EMERGE_JOBS=3
 ((JOBS >= 24)) && EMERGE_JOBS=4
@@ -425,6 +426,8 @@ install_files() {
 		BOOT_MODES="${BOOT}"
 		WIFI="${WIFI}"
 		BLUETOOTH="${BLUETOOTH}"
+		GUEST_TOOLS="${GUEST_TOOLS}"
+		GUEST_ADDITIONS="${GUEST_ADDITIONS}"
 	EOF
 }
 
@@ -435,9 +438,15 @@ setup_system() {
 	local s
 	# vm-guest starts QEMU/VMware/Hyper-V/VirtualBox/Xen guest tools when
 	# running in that hypervisor; those services are not added themselves.
-	for s in dbus NetworkManager display-manager cupsd avahi-daemon chronyd sysklogd cronie vm-guest; do
+	for s in dbus NetworkManager display-manager cupsd avahi-daemon chronyd sysklogd cronie; do
 		add_service "${s}" default
 	done
+	# Nothing for vm-guest to start without any guest tools.
+	if ((GUEST_TOOLS || GUEST_ADDITIONS)); then
+		add_service vm-guest default
+	else
+		rc-update del vm-guest default >/dev/null 2>&1 || true
+	fi
 	if ((BLUETOOTH)); then
 		add_service bluetooth default
 	else

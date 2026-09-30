@@ -37,6 +37,8 @@ def read_edition(path: str = EDITION_FILE) -> dict[str, str]:
         "GPU_DESC": "",
         "LIVE_USER": "live",
         "BOOT_MODES": "both",
+        "GUEST_TOOLS": "1",
+        "GUEST_ADDITIONS": "1",
     }
     try:
         text = Path(path).read_text()

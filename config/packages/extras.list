@@ -79,6 +79,7 @@ app-arch/zip
 # none: the kernel's hv_utils handles shutdown, time sync and heartbeat; the
 # KVP/VSS daemons are not packaged in Gentoo. Xen needs none either: the
 # XCP-ng agent xe-guest-utilities would pull in the whole Xen host toolstack.)
+# (build.sh --no-guest-tools leaves out the QEMU and VMware ones)
 app-emulation/qemu-guest-agent
 app-emulation/spice-vdagent
 app-emulation/open-vm-tools

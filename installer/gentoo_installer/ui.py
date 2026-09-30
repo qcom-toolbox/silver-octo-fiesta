@@ -92,8 +92,15 @@ class WelcomePage(Page):
         form.addRow("<b>Boot mode:</b>", QtWidgets.QLabel("UEFI" if wizard.cfg.uefi else "Legacy BIOS"))
         hypervisor = system.detect_hypervisor(cpu=cpu)
         if hypervisor != "none":
+            key = "GUEST_ADDITIONS" if hypervisor == "virtualbox" else "GUEST_TOOLS"
+            if hypervisor == "other":
+                tools = ""
+            elif ed.get(key, "1") == "1":
+                tools = " (guest tools start automatically)"
+            else:
+                tools = " (this image has no guest tools for it)"
             form.addRow("<b>Virtual machine:</b>", QtWidgets.QLabel(
-                f"{system.HYPERVISOR_NAMES.get(hypervisor, hypervisor)} (guest tools start automatically)"))
+                f"{system.HYPERVISOR_NAMES.get(hypervisor, hypervisor)}{tools}"))
         box = QtWidgets.QGroupBox("Your computer")
         box.setLayout(form)
         self.layout_.addWidget(box)
