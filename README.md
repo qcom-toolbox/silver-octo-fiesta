@@ -147,6 +147,9 @@ Compiling everything from source takes many hours: roughly 5–10 h on a 5950X,
 - `--no-wifi` builds NetworkManager without Wi-Fi (wired network only).
 - `--no-bluetooth` leaves out Bluetooth: no BlueZ, no Bluetooth settings
   in Plasma, and no Bluetooth audio in PipeWire.
+- `--guest-additions` includes the VirtualBox Guest Additions (shared
+  clipboard and shared folders in VirtualBox). They are left out by default;
+  the image still runs in VirtualBox without them.
 - Every compiled package is cached in `work/cache/binpkgs/<edition>`. If you
   re-run a build that failed or was interrupted, it continues where it
   stopped instead of starting over.
@@ -199,7 +202,8 @@ VMXNET3), Hyper-V (synthetic disk, network, video and input), VirtualBox
 (VMSVGA, shared folders) and Xen (HVM/PVH front-end drivers). Mesa includes
 the virgl and VMware SVGA 3D drivers.
 
-The guest tools are all installed. At boot, the `vm-guest` service runs
+The guest tools are installed (the VirtualBox Guest Additions only with
+`--guest-additions`). At boot, the `vm-guest` service runs
 `gentoo-vm-detect` and starts only the tools that match the hypervisor. On
 real hardware it starts nothing.
 
@@ -208,7 +212,7 @@ real hardware it starts nothing.
 | QEMU/KVM, Proxmox, virt-manager | `qemu-guest-agent`, `spice-vdagent` |
 | VMware Workstation / ESXi | `open-vm-tools` |
 | Microsoft Hyper-V | Built into the kernel (`hv_utils`: shutdown, time sync, heartbeat); Gentoo has no KVP/VSS daemon package |
-| VirtualBox | VirtualBox Guest Additions (clipboard, shared folders) |
+| VirtualBox | VirtualBox Guest Additions (clipboard, shared folders), only when built with `--guest-additions` |
 | Xen / XCP-ng | Built into the kernel (Xen front-end drivers); the XCP-ng agent `xe-guest-utilities` is left out because it needs the whole Xen host toolstack |
 
 ### Running virtual machines on Gentoo Linux

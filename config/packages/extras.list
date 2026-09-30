@@ -82,6 +82,7 @@ app-arch/zip
 app-emulation/qemu-guest-agent
 app-emulation/spice-vdagent
 app-emulation/open-vm-tools
+# only with build.sh --guest-additions
 app-emulation/virtualbox-guest-additions
 
 # Fonts

@@ -20,7 +20,7 @@ MARKERS=/var/lib/gentoo-desktop-build
 
 : "${JOBS:=$(nproc)}" "${BINHOST:=0}" "${REBUILD:=1}" "${BUILD_DATE:=$(date +%Y%m%d)}"
 : "${VM_HOST:=1}" "${MULTILIB:=1}" "${CHECK_ONLY:=0}"
-: "${BOOT:=both}" "${WIFI:=1}" "${BLUETOOTH:=1}"
+: "${BOOT:=both}" "${WIFI:=1}" "${BLUETOOTH:=1}" "${GUEST_ADDITIONS:=0}"
 # GRUB_PLATFORMS and BLUETOOTH_USE go into make.conf through render_template.
 # shellcheck disable=SC2034
 case ${BOOT} in
@@ -32,10 +32,12 @@ BLUETOOTH_USE=bluetooth
 # shellcheck disable=SC2034
 ((BLUETOOTH)) || BLUETOOTH_USE=-bluetooth
 # Packages left out of the image: ones no longer part of it (the VirtualBox
-# host; deselected so rebuilds of an older build remove them) and the ones
-# left out by build.sh --no-bluetooth.
+# host; deselected so rebuilds of an older build remove them), the ones left
+# out by build.sh --no-bluetooth, and the VirtualBox Guest Additions unless
+# build.sh --guest-additions.
 EXCLUDED_PKGS=(app-emulation/virtualbox app-emulation/virtualbox-modules)
 ((BLUETOOTH)) || EXCLUDED_PKGS+=(net-wireless/bluez kde-plasma/bluedevil)
+((GUEST_ADDITIONS)) || EXCLUDED_PKGS+=(app-emulation/virtualbox-guest-additions)
 EMERGE_JOBS=2
 ((JOBS >= 12)) && EMERGE_JOBS=3
 ((JOBS >= 24)) && EMERGE_JOBS=4
