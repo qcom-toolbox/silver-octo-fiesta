@@ -108,7 +108,7 @@ def test_erase_install_uefi_btrfs(target):
     assert "-j32" not in (root / "etc/portage/make.conf").read_text()
 
     useradd = next(c for c in runner.commands if "useradd" in c)
-    # only groups that exist (no vboxusers without VirtualBox), including the VM ones
+    # only groups that exist (no libvirt without the VM host), including the VM ones
     assert useradd[useradd.index("--groups") + 1] == "users,wheel,audio,video,kvm,libvirt"
     assert "alex:s3cret!\n" in runner.inputs
     assert any(c[-2:] == ["--lock", "root"] for c in runner.commands)

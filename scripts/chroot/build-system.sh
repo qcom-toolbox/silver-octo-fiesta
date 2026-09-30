@@ -31,8 +31,10 @@ esac
 BLUETOOTH_USE=bluetooth
 # shellcheck disable=SC2034
 ((BLUETOOTH)) || BLUETOOTH_USE=-bluetooth
-# Packages of the package lists left out by build.sh --no-wifi/--no-bluetooth.
-EXCLUDED_PKGS=()
+# Packages left out of the image: ones no longer part of it (the VirtualBox
+# host; deselected so rebuilds of an older build remove them) and the ones
+# left out by build.sh --no-bluetooth.
+EXCLUDED_PKGS=(app-emulation/virtualbox app-emulation/virtualbox-modules)
 ((BLUETOOTH)) || EXCLUDED_PKGS+=(net-wireless/bluez kde-plasma/bluedevil)
 EMERGE_JOBS=2
 ((JOBS >= 12)) && EMERGE_JOBS=3
@@ -366,11 +368,9 @@ build_world() {
 		setup_multilib
 	fi
 
-	# Left out with --no-bluetooth: forget them if an earlier build installed
-	# them, so --depclean removes them.
-	if ((${#EXCLUDED_PKGS[@]})); then
-		emerge --deselect "${EXCLUDED_PKGS[@]}" || true
-	fi
+	# Forget left-out packages an earlier build installed, so --depclean
+	# removes them.
+	emerge --deselect "${EXCLUDED_PKGS[@]}" || true
 	emerge --update --deep --newuse @world
 	emerge --depclean
 
@@ -397,6 +397,9 @@ install_files() {
 		printf '#!/bin/sh\nexec fastfetch "$@"\n' >/usr/local/bin/neofetch
 		chmod 755 /usr/local/bin/neofetch
 	fi
+
+	# Made for the VirtualBox host, which is no longer included.
+	rm -f /etc/modprobe.d/kvm-virtualbox.conf
 
 	# Snapshots are taken by /etc/cron.*/gentoo-snapshot; drop the cron jobs
 	# some snapper versions install so nothing runs twice.
@@ -468,7 +471,7 @@ setup_live() {
 	echo "${STATE_DIR}/live-files.list" >>"${STATE_DIR}/live-files.list"
 
 	local g groups=()
-	for g in users wheel audio video input render plugdev usb lp pipewire kvm libvirt vboxusers; do
+	for g in users wheel audio video input render plugdev usb lp pipewire kvm libvirt; do
 		getent group "${g}" >/dev/null && groups+=("${g}")
 	done
 	if ! id "${LIVE_USER}" >/dev/null 2>&1; then

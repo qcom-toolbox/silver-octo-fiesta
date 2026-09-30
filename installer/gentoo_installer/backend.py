@@ -42,8 +42,8 @@ RESERVED_USERNAMES = {
 }
 USER_GROUPS = (
     "users", "wheel", "audio", "video", "input", "render", "plugdev", "usb", "lp", "pipewire",
-    # virtual machines: QEMU/KVM, virt-manager (libvirt), VirtualBox
-    "kvm", "libvirt", "vboxusers",
+    # virtual machines: QEMU/KVM, virt-manager (libvirt)
+    "kvm", "libvirt",
 )
 BIOS_BOOT_GUID = "21686148-6449-6E6F-744E-656564454649"
 BTRFS_OPTS = "compress=zstd:1,noatime"

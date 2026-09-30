@@ -24,11 +24,10 @@ sys-fs/lvm2 lvm -thin
 sys-fs/zfs dist-kernel modules rootfs
 
 # Virtual machine host: QEMU with SPICE, USB redirection and 3D (virgl),
-# libvirt with NAT networking, VirtualBox kernel modules for every kernel
+# libvirt with NAT networking
 app-emulation/qemu spice usbredir virgl opengl gtk pulseaudio pipewire
 app-emulation/libvirt qemu virt-network libvirtd policykit
 app-emulation/virt-manager gui
-app-emulation/virtualbox-modules dist-kernel
 net-dns/dnsmasq script
 # swtpm (virtual TPM, e.g. for Windows 11 VMs) and virt-manager's viewer need these
 net-libs/gnutls tools pkcs11

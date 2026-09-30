@@ -12,7 +12,7 @@ A graphical installer puts it on your disk in a few clicks.
 | **Desktop** | KDE Plasma 6 on Wayland, SDDM with a Wayland greeter (no Xorg needed) |
 | **Kernel** | `sys-kernel/gentoo-kernel` plus a desktop config fragment (amd-pstate/intel_pstate, 1000 Hz, full preemption, i915 + xe for Intel graphics) |
 | **CPUs** | AMD Ryzen 1000–9000, Intel Core 10th gen (2020) and newer, Core Ultra, plus a generic edition for any x86-64 CPU |
-| **Virtual machines** | Runs as a guest in QEMU/KVM, VMware, Hyper-V, VirtualBox and Xen (guest tools start automatically), and hosts VMs with QEMU/KVM + virt-manager and VirtualBox |
+| **Virtual machines** | Runs as a guest in QEMU/KVM, VMware, Hyper-V, VirtualBox and Xen (guest tools start automatically), and hosts VMs with QEMU/KVM + virt-manager |
 | **Graphics** | NVIDIA RTX 3000/4000/5000 (open kernel modules), or AMD Radeon RX 6000–9000 / Intel Arc / integrated graphics (mesa) |
 | **Tools** | sudo, neofetch, fastfetch, hyfetch, screenfetch, htop, btop, atop, KDE Partition Manager, Konsole, Dolphin, Kate… |
 | **Installer** | Graphical Qt 6 wizard: automatic or manual (dual-boot) partitioning, Btrfs, ext4 or ZFS, automatic snapshots (Snapper / ZFS), optional encryption (LUKS2 / native ZFS), UEFI or legacy BIOS (chosen at build time with `--boot`) |
@@ -136,8 +136,7 @@ Compiling everything from source takes many hours: roughly 5–10 h on a 5950X,
   newly installed packages get `-march` tuning.
 - `--nice` runs the whole build at the lowest CPU and disk priority, so the
   computer stays usable while it compiles.
-- `--no-vm-host` leaves out QEMU/virt-manager and VirtualBox, which saves
-  roughly an hour of compiling.
+- `--no-vm-host` leaves out QEMU/virt-manager, which saves compiling time.
 - `--no-multilib` leaves out the 32-bit libraries (see below), which saves
   roughly 1–2 hours of compiling.
 - `--boot uefi|bios|both` picks the firmware the ISO and installed systems
@@ -220,16 +219,8 @@ The desktop also hosts virtual machines (unless built with `--no-vm-host`):
   NAT network starts automatically, so new VMs have internet access. UEFI
   firmware (OVMF) and a software TPM (`swtpm`, for Windows 11) are installed,
   and 3D guests are supported via virgl.
-- **VirtualBox:** installed with its kernel modules, which are rebuilt
-  automatically with every kernel update.
-- Your user is added to the `kvm`, `libvirt` and `vboxusers` groups, so both
-  work without the root password.
-- KVM and VirtualBox can be installed side by side. KVM only claims the CPU's
-  virtualisation support while a KVM VM runs (`kvm enable_virt_at_load=0`).
-  Run VMs in only one of them at a time.
-
-Like ZFS, VirtualBox's kernel modules must support the kernel version. If they
-can't be built, the build skips VirtualBox with a warning.
+- Your user is added to the `kvm` and `libvirt` groups, so VMs run without
+  the root password.
 
 ### Picking a CPU edition for a guest VM
 
@@ -378,7 +369,7 @@ config/
   gpu/{nvidia,mesa}/        VIDEO_CARDS, driver USE flags/licenses, extra packages and files
   portage/                  make.conf template, package.use/license/keywords, @desktop-core set
   packages/extras.list      desktop applications (with fallbacks for renamed packages)
-  packages/vm-host.list     QEMU/libvirt/virt-manager and VirtualBox (--no-vm-host skips it)
+  packages/vm-host.list     QEMU/libvirt/virt-manager (--no-vm-host skips it)
   packages/multilib-32bit.list  32-bit libraries for Steam/Wine/Proton (--no-multilib skips it)
   kernel/desktop.config     kernel config fragment (/etc/kernel/config.d)
 rootfs/                     files copied into every image (SDDM Wayland, OpenRC, sysctl, ...)

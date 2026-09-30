@@ -43,7 +43,7 @@ Options:
       --work <dir>      Work directory (default: ./work)
       --out <dir>       Output directory for ISOs (default: ./out)
       --no-gpg          Skip the GPG signature check of the stage3 tarball
-      --no-vm-host      Leave out QEMU/virt-manager and VirtualBox (shorter build)
+      --no-vm-host      Leave out QEMU/virt-manager (shorter build)
       --no-multilib     Leave out the 32-bit libraries (for Steam, Wine/Proton and
                         other 32-bit programs); saves roughly 1-2 hours
       --boot <mode>     Firmware the ISO and installed systems boot with:
